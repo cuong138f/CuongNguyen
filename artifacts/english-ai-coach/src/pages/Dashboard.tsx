@@ -1,31 +1,31 @@
 import { useGetDashboardSummary, useGetMyActivity, useGetDailyChallenge } from "@workspace/api-client-react";
-import { UserButton } from "@clerk/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Trophy, Flame, BookOpen, Star, Activity, Medal } from "lucide-react";
-import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
 
 export default function Dashboard() {
   const { data: summary, isLoading: isSummaryLoading } = useGetDashboardSummary();
   const { data: activity, isLoading: isActivityLoading } = useGetMyActivity({ limit: 5 });
   const { data: dailyChallenge, isLoading: isChallengeLoading } = useGetDailyChallenge();
 
-  const skillData = summary?.user ? [
+  const skillData = [
     { subject: 'Vocabulary', A: 80, fullMark: 100 },
     { subject: 'Grammar', A: 65, fullMark: 100 },
     { subject: 'Speaking', A: 45, fullMark: 100 },
     { subject: 'Listening', A: 70, fullMark: 100 },
     { subject: 'Reading', A: 85, fullMark: 100 },
-  ] : [];
+  ];
 
   return (
     <div className="min-h-screen bg-background text-foreground p-6 md:p-12">
       <header className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Welcome back, {summary?.user?.displayName || "Learner"}!</h1>
-          <p className="text-muted-foreground mt-1">Let's continue your English journey.</p>
+          <h1 className="text-3xl font-bold tracking-tight">
+            Xin chào, {summary?.user?.displayName || "Học Viên"}!
+          </h1>
+          <p className="text-muted-foreground mt-1">Hãy tiếp tục hành trình học tiếng Anh của bạn.</p>
         </div>
-        <div className="md:hidden"><UserButton /></div>
       </header>
 
       {isSummaryLoading || !summary ? (
@@ -39,7 +39,7 @@ export default function Dashboard() {
           <Card className="bg-card/50 backdrop-blur-sm border-white/5 relative overflow-hidden group">
             <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Current Streak</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Chuỗi ngày</CardTitle>
               <Flame className="w-5 h-5 text-orange-500 drop-shadow-[0_0_8px_rgba(249,115,22,0.5)]" />
             </CardHeader>
             <CardContent>
@@ -47,40 +47,40 @@ export default function Dashboard() {
               <p className="text-xs text-muted-foreground mt-1">Keep it burning!</p>
             </CardContent>
           </Card>
-          
+
           <Card className="bg-card/50 backdrop-blur-sm border-white/5 relative overflow-hidden group">
             <div className="absolute inset-0 bg-gradient-to-br from-yellow-400/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total XP</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Tổng XP</CardTitle>
               <Star className="w-5 h-5 text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.5)]" />
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold">{summary.totalXp}</div>
-              <p className="text-xs text-muted-foreground mt-1">+{summary.todayXp} today</p>
+              <p className="text-xs text-muted-foreground mt-1">+{summary.todayXp} hôm nay</p>
             </CardContent>
           </Card>
 
           <Card className="bg-card/50 backdrop-blur-sm border-white/5 relative overflow-hidden group">
             <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Words Learned</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Từ đã học</CardTitle>
               <BookOpen className="w-5 h-5 text-primary drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold">{summary.wordsLearned}</div>
-              <p className="text-xs text-muted-foreground mt-1">{summary.wordsDueReview} due for review</p>
+              <p className="text-xs text-muted-foreground mt-1">{summary.wordsDueReview} cần ôn tập</p>
             </CardContent>
           </Card>
 
           <Card className="bg-card/50 backdrop-blur-sm border-white/5 relative overflow-hidden group">
             <div className="absolute inset-0 bg-gradient-to-br from-accent/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Level</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Cấp độ</CardTitle>
               <Trophy className="w-5 h-5 text-accent drop-shadow-[0_0_8px_rgba(139,92,246,0.5)]" />
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold">{summary.level}</div>
-              <p className="text-xs text-muted-foreground mt-1">{summary.xpToNextLevel} XP to next level</p>
+              <p className="text-xs text-muted-foreground mt-1">{summary.xpToNextLevel} XP lên cấp tiếp</p>
             </CardContent>
           </Card>
         </div>
@@ -92,7 +92,7 @@ export default function Dashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Activity className="w-5 h-5 text-primary" />
-                Skills Radar
+                Biểu đồ kỹ năng
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -114,7 +114,7 @@ export default function Dashboard() {
           <Card className="border-white/5 bg-card/40 relative overflow-hidden border-primary/20">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary to-accent" />
             <CardHeader>
-              <CardTitle className="text-lg">Daily Challenge</CardTitle>
+              <CardTitle className="text-lg">Thử thách hôm nay</CardTitle>
             </CardHeader>
             <CardContent>
               {isChallengeLoading ? (
@@ -128,19 +128,19 @@ export default function Dashboard() {
                       <Star className="w-4 h-4" /> {dailyChallenge.xpReward} XP
                     </span>
                     <span className={`text-xs px-2 py-1 rounded-full ${dailyChallenge.isCompleted ? 'bg-green-500/20 text-green-400' : 'bg-secondary text-muted-foreground'}`}>
-                      {dailyChallenge.isCompleted ? 'Completed' : 'Pending'}
+                      {dailyChallenge.isCompleted ? 'Hoàn thành' : 'Chưa làm'}
                     </span>
                   </div>
                 </div>
               ) : (
-                <div className="text-center text-muted-foreground py-4">No challenge today.</div>
+                <div className="text-center text-muted-foreground py-4">Không có thử thách hôm nay.</div>
               )}
             </CardContent>
           </Card>
 
           <Card className="border-white/5 bg-card/40">
             <CardHeader>
-              <CardTitle className="text-lg">Recent Activity</CardTitle>
+              <CardTitle className="text-lg">Hoạt động gần đây</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
@@ -162,7 +162,7 @@ export default function Dashboard() {
                     </div>
                   ))
                 ) : (
-                  <div className="text-center text-muted-foreground py-4">No recent activity.</div>
+                  <div className="text-center text-muted-foreground py-4">Chưa có hoạt động nào.</div>
                 )}
               </div>
             </CardContent>

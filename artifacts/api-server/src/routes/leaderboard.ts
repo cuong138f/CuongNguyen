@@ -1,13 +1,12 @@
 import { Router } from "express";
-import { getAuth } from "@clerk/express";
 import { db, usersTable } from "@workspace/db";
 import { desc } from "drizzle-orm";
-import { requireAuth } from "../lib/auth";
+import { getGuestUser } from "../lib/auth";
 
 const router = Router();
 
-router.get("/", requireAuth, async (req, res) => {
-  const { userId } = getAuth(req);
+router.get("/", async (req, res) => {
+  const user = await getGuestUser();
   const limit = parseInt(req.query.limit as string) || 20;
 
   const users = await db.select().from(usersTable).orderBy(desc(usersTable.xp)).limit(limit);
@@ -20,7 +19,7 @@ router.get("/", requireAuth, async (req, res) => {
     xp: u.xp,
     level: u.level,
     streak: u.streak,
-    isCurrentUser: u.clerkId === userId,
+    isCurrentUser: u.id === user.id,
   }));
 
   res.json(entries);

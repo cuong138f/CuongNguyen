@@ -1,8 +1,7 @@
 import { Router } from "express";
-import { getAuth } from "@clerk/express";
-import { db, usersTable, vocabularyTable } from "@workspace/db";
+import { db, vocabularyTable } from "@workspace/db";
 import { eq, and, lt } from "drizzle-orm";
-import { requireAuth } from "../lib/auth";
+import { getGuestUser } from "../lib/auth";
 
 const router = Router();
 
@@ -15,16 +14,12 @@ function sm2(easeFactor: number, interval: number, quality: number) {
   return { easeFactor: Math.round(newEf), interval: newInterval, nextReviewAt: nextReview, status };
 }
 
-router.get("/", requireAuth, async (req, res) => {
-  const { userId } = getAuth(req);
-  const user = await db.select().from(usersTable).where(eq(usersTable.clerkId, userId!)).limit(1);
-  if (!user[0]) { res.json([]); return; }
-
+router.get("/", async (req, res) => {
+  const user = await getGuestUser();
   const { status, limit = "50", offset = "0" } = req.query;
-  let query = db.select().from(vocabularyTable).where(eq(vocabularyTable.userId, user[0].id));
   const words = await db.select().from(vocabularyTable)
     .where(and(
-      eq(vocabularyTable.userId, user[0].id),
+      eq(vocabularyTable.userId, user.id),
       ...(status ? [eq(vocabularyTable.status, status as string)] : [])
     ))
     .limit(parseInt(limit as string))
@@ -32,65 +27,50 @@ router.get("/", requireAuth, async (req, res) => {
   res.json(words);
 });
 
-router.post("/", requireAuth, async (req, res) => {
-  const { userId } = getAuth(req);
-  const user = await db.select().from(usersTable).where(eq(usersTable.clerkId, userId!)).limit(1);
-  if (!user[0]) { res.status(404).json({ error: "User not found" }); return; }
-
+router.post("/", async (req, res) => {
+  const user = await getGuestUser();
   const { word, definition, partOfSpeech = "noun", exampleSentence, pronunciation } = req.body;
   const nextReview = new Date();
   nextReview.setDate(nextReview.getDate() + 1);
 
   const [created] = await db.insert(vocabularyTable).values({
-    userId: user[0].id, word, definition, partOfSpeech, exampleSentence, pronunciation,
+    userId: user.id, word, definition, partOfSpeech, exampleSentence, pronunciation,
     status: "new", reviewCount: 0, easeFactor: 250, interval: 1, nextReviewAt: nextReview,
   }).returning();
   res.status(201).json(created);
 });
 
-router.patch("/:id", requireAuth, async (req, res) => {
-  const { userId } = getAuth(req);
-  const user = await db.select().from(usersTable).where(eq(usersTable.clerkId, userId!)).limit(1);
-  if (!user[0]) { res.status(404).json({ error: "User not found" }); return; }
-
+router.patch("/:id", async (req, res) => {
+  const user = await getGuestUser();
   const { status, definition, exampleSentence } = req.body;
   const [updated] = await db.update(vocabularyTable)
     .set({ ...(status && { status }), ...(definition && { definition }), ...(exampleSentence && { exampleSentence }) })
-    .where(and(eq(vocabularyTable.id, parseInt(req.params.id)), eq(vocabularyTable.userId, user[0].id)))
+    .where(and(eq(vocabularyTable.id, parseInt(req.params.id)), eq(vocabularyTable.userId, user.id)))
     .returning();
   res.json(updated);
 });
 
-router.delete("/:id", requireAuth, async (req, res) => {
-  const { userId } = getAuth(req);
-  const user = await db.select().from(usersTable).where(eq(usersTable.clerkId, userId!)).limit(1);
-  if (!user[0]) { res.status(404).json({ error: "User not found" }); return; }
-
+router.delete("/:id", async (req, res) => {
+  const user = await getGuestUser();
   await db.delete(vocabularyTable)
-    .where(and(eq(vocabularyTable.id, parseInt(req.params.id)), eq(vocabularyTable.userId, user[0].id)));
+    .where(and(eq(vocabularyTable.id, parseInt(req.params.id)), eq(vocabularyTable.userId, user.id)));
   res.status(204).send();
 });
 
-router.get("/quiz", requireAuth, async (req, res) => {
-  const { userId } = getAuth(req);
-  const user = await db.select().from(usersTable).where(eq(usersTable.clerkId, userId!)).limit(1);
-  if (!user[0]) { res.json([]); return; }
-
+router.get("/quiz", async (req, res) => {
+  const user = await getGuestUser();
   const limit = parseInt(req.query.limit as string) || 10;
   const now = new Date();
   const due = await db.select().from(vocabularyTable)
-    .where(and(eq(vocabularyTable.userId, user[0].id), lt(vocabularyTable.nextReviewAt, now)))
+    .where(and(eq(vocabularyTable.userId, user.id), lt(vocabularyTable.nextReviewAt, now)))
     .limit(limit);
   res.json(due);
 });
 
-router.post("/:id/review", requireAuth, async (req, res) => {
-  const { userId } = getAuth(req);
-  const user = await db.select().from(usersTable).where(eq(usersTable.clerkId, userId!)).limit(1);
-  if (!user[0]) { res.status(404).json({ error: "User not found" }); return; }
-
+router.post("/:id/review", async (req, res) => {
+  const user = await getGuestUser();
   const word = await db.select().from(vocabularyTable)
-    .where(and(eq(vocabularyTable.id, parseInt(req.params.id)), eq(vocabularyTable.userId, user[0].id)))
+    .where(and(eq(vocabularyTable.id, parseInt(req.params.id)), eq(vocabularyTable.userId, user.id)))
     .limit(1);
   if (!word[0]) { res.status(404).json({ error: "Word not found" }); return; }
 

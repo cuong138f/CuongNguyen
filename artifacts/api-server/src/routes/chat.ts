@@ -1,8 +1,7 @@
 import { Router } from "express";
-import { getAuth } from "@clerk/express";
-import { db, usersTable, chatSessionsTable, chatMessagesTable, activityLogTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
-import { requireAuth } from "../lib/auth";
+import { db, chatSessionsTable, chatMessagesTable, activityLogTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
+import { getGuestUser } from "../lib/auth";
 
 const router = Router();
 
@@ -24,43 +23,30 @@ const MOCK_RESPONSES = [
   },
 ];
 
-router.get("/sessions", requireAuth, async (req, res) => {
-  const { userId } = getAuth(req);
-  const user = await db.select().from(usersTable).where(eq(usersTable.clerkId, userId!)).limit(1);
-  if (!user[0]) { res.json([]); return; }
-
+router.get("/sessions", async (req, res) => {
+  const user = await getGuestUser();
   const sessions = await db.select().from(chatSessionsTable)
-    .where(eq(chatSessionsTable.userId, user[0].id));
+    .where(eq(chatSessionsTable.userId, user.id));
   res.json(sessions);
 });
 
-router.post("/sessions", requireAuth, async (req, res) => {
-  const { userId } = getAuth(req);
-  const user = await db.select().from(usersTable).where(eq(usersTable.clerkId, userId!)).limit(1);
-  if (!user[0]) { res.status(404).json({ error: "User not found" }); return; }
-
+router.post("/sessions", async (req, res) => {
+  const user = await getGuestUser();
   const { topic } = req.body;
   const [session] = await db.insert(chatSessionsTable).values({
-    userId: user[0].id, topic, messageCount: 0,
+    userId: user.id, topic, messageCount: 0,
   }).returning();
   res.status(201).json(session);
 });
 
-router.get("/sessions/:id/messages", requireAuth, async (req, res) => {
-  const { userId } = getAuth(req);
-  const user = await db.select().from(usersTable).where(eq(usersTable.clerkId, userId!)).limit(1);
-  if (!user[0]) { res.json([]); return; }
-
+router.get("/sessions/:id/messages", async (req, res) => {
   const messages = await db.select().from(chatMessagesTable)
     .where(eq(chatMessagesTable.sessionId, parseInt(req.params.id)));
   res.json(messages);
 });
 
-router.post("/sessions/:id/messages", requireAuth, async (req, res) => {
-  const { userId } = getAuth(req);
-  const user = await db.select().from(usersTable).where(eq(usersTable.clerkId, userId!)).limit(1);
-  if (!user[0]) { res.status(404).json({ error: "User not found" }); return; }
-
+router.post("/sessions/:id/messages", async (req, res) => {
+  const user = await getGuestUser();
   const sessionId = parseInt(req.params.id);
   const { content } = req.body;
 
@@ -83,7 +69,7 @@ router.post("/sessions/:id/messages", requireAuth, async (req, res) => {
     .where(eq(chatSessionsTable.id, sessionId));
 
   await db.insert(activityLogTable).values({
-    userId: user[0].id, type: "chat_session",
+    userId: user.id, type: "chat_session",
     description: "Practiced English in AI chat", xpEarned: 5,
   });
 

@@ -1,8 +1,7 @@
 import { Router } from "express";
-import { getAuth } from "@clerk/express";
-import { db, usersTable, speakingSessionsTable, activityLogTable } from "@workspace/db";
+import { db, speakingSessionsTable, activityLogTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { requireAuth } from "../lib/auth";
+import { getGuestUser } from "../lib/auth";
 
 const router = Router();
 
@@ -25,33 +24,26 @@ function scorePronunciation(target: string, transcript: string) {
   return { score, errors };
 }
 
-router.get("/sessions", requireAuth, async (req, res) => {
-  const { userId } = getAuth(req);
-  const user = await db.select().from(usersTable).where(eq(usersTable.clerkId, userId!)).limit(1);
-  if (!user[0]) { res.json([]); return; }
-
-  const sessions = await db.select().from(speakingSessionsTable).where(eq(speakingSessionsTable.userId, user[0].id));
+router.get("/sessions", async (req, res) => {
+  const user = await getGuestUser();
+  const sessions = await db.select().from(speakingSessionsTable)
+    .where(eq(speakingSessionsTable.userId, user.id));
   res.json(sessions);
 });
 
-router.post("/sessions", requireAuth, async (req, res) => {
-  const { userId } = getAuth(req);
-  const user = await db.select().from(usersTable).where(eq(usersTable.clerkId, userId!)).limit(1);
-  if (!user[0]) { res.status(404).json({ error: "User not found" }); return; }
-
+router.post("/sessions", async (req, res) => {
+  const user = await getGuestUser();
   const { targetText } = req.body;
   const [session] = await db.insert(speakingSessionsTable).values({
-    userId: user[0].id, targetText,
+    userId: user.id, targetText,
   }).returning();
   res.status(201).json(session);
 });
 
-router.post("/sessions/:id/submit", requireAuth, async (req, res) => {
-  const { userId } = getAuth(req);
-  const user = await db.select().from(usersTable).where(eq(usersTable.clerkId, userId!)).limit(1);
-  if (!user[0]) { res.status(404).json({ error: "User not found" }); return; }
-
-  const session = await db.select().from(speakingSessionsTable).where(eq(speakingSessionsTable.id, parseInt(req.params.id))).limit(1);
+router.post("/sessions/:id/submit", async (req, res) => {
+  const user = await getGuestUser();
+  const session = await db.select().from(speakingSessionsTable)
+    .where(eq(speakingSessionsTable.id, parseInt(req.params.id))).limit(1);
   if (!session[0]) { res.status(404).json({ error: "Session not found" }); return; }
 
   const { transcription } = req.body;
@@ -68,7 +60,7 @@ router.post("/sessions/:id/submit", requireAuth, async (req, res) => {
     .where(eq(speakingSessionsTable.id, session[0].id));
 
   await db.insert(activityLogTable).values({
-    userId: user[0].id, type: "speaking_session",
+    userId: user.id, type: "speaking_session",
     description: "Completed a speaking practice session", xpEarned: 10,
   });
 
