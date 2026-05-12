@@ -3,20 +3,36 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: English AI Coach API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: users
+    description: User profile and progress
+  - name: vocabulary
+    description: Vocabulary and flashcard management
+  - name: lessons
+    description: Lesson content and exercises
+  - name: chat
+    description: AI chat sessions
+  - name: speaking
+    description: Speaking practice sessions
+  - name: gamification
+    description: Levels, badges, streaks
+  - name: leaderboard
+    description: Leaderboard rankings
+  - name: dashboard
+    description: Dashboard aggregates
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +40,500 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ─── Users ───────────────────────────────────────────────────────────────────
+  /users/me:
+    get:
+      operationId: getMe
+      tags: [users]
+      summary: Get current user profile
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+    patch:
+      operationId: updateMe
+      tags: [users]
+      summary: Update current user profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserProfileUpdate"
+      responses:
+        "200":
+          description: Updated user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+
+  /users/me/stats:
+    get:
+      operationId: getMyStats
+      tags: [users]
+      summary: Get user learning statistics
+      responses:
+        "200":
+          description: User stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserStats"
+
+  /users/me/activity:
+    get:
+      operationId: getMyActivity
+      tags: [users]
+      summary: Get recent learning activity feed
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Activity list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityEntry"
+
+  # ─── Dashboard ────────────────────────────────────────────────────────────────
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get dashboard summary (streak, XP, words learned, skill breakdown)
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  # ─── Vocabulary ───────────────────────────────────────────────────────────────
+  /vocabulary:
+    get:
+      operationId: listVocabulary
+      tags: [vocabulary]
+      summary: List user vocabulary words
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [new, learning, mastered, difficult]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Vocabulary list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VocabularyWord"
+    post:
+      operationId: addVocabularyWord
+      tags: [vocabulary]
+      summary: Add a word to user vocabulary
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VocabularyWordInput"
+      responses:
+        "201":
+          description: Created word
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VocabularyWord"
+
+  /vocabulary/{id}:
+    patch:
+      operationId: updateVocabularyWord
+      tags: [vocabulary]
+      summary: Update vocabulary word (status, notes)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VocabularyWordUpdate"
+      responses:
+        "200":
+          description: Updated word
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VocabularyWord"
+    delete:
+      operationId: deleteVocabularyWord
+      tags: [vocabulary]
+      summary: Remove a word from vocabulary
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /vocabulary/quiz:
+    get:
+      operationId: getVocabularyQuiz
+      tags: [vocabulary]
+      summary: Get a spaced-repetition quiz session (words due for review)
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: Quiz words
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VocabularyWord"
+
+  /vocabulary/{id}/review:
+    post:
+      operationId: submitVocabularyReview
+      tags: [vocabulary]
+      summary: Submit a spaced-repetition review result
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewResult"
+      responses:
+        "200":
+          description: Updated word with next review date
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VocabularyWord"
+
+  # ─── Lessons ──────────────────────────────────────────────────────────────────
+  /lessons:
+    get:
+      operationId: listLessons
+      tags: [lessons]
+      summary: List all lessons
+      parameters:
+        - name: level
+          in: query
+          schema:
+            type: string
+            enum: [beginner, intermediate, advanced]
+        - name: category
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Lessons
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Lesson"
+
+  /lessons/{id}:
+    get:
+      operationId: getLesson
+      tags: [lessons]
+      summary: Get lesson details with exercises
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Lesson detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LessonDetail"
+
+  /lessons/{id}/complete:
+    post:
+      operationId: completeLesson
+      tags: [lessons]
+      summary: Mark a lesson as completed and award XP
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LessonCompletionInput"
+      responses:
+        "200":
+          description: Completion result with XP awarded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LessonCompletion"
+
+  # ─── Chat ─────────────────────────────────────────────────────────────────────
+  /chat/sessions:
+    get:
+      operationId: listChatSessions
+      tags: [chat]
+      summary: List user's chat sessions
+      responses:
+        "200":
+          description: Chat sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChatSession"
+    post:
+      operationId: createChatSession
+      tags: [chat]
+      summary: Create a new chat session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatSessionInput"
+      responses:
+        "201":
+          description: Created session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatSession"
+
+  /chat/sessions/{id}/messages:
+    get:
+      operationId: getChatMessages
+      tags: [chat]
+      summary: Get messages for a chat session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChatMessage"
+    post:
+      operationId: sendChatMessage
+      tags: [chat]
+      summary: Send a message and get AI response with grammar correction
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatMessageInput"
+      responses:
+        "200":
+          description: AI response with grammar feedback
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatResponse"
+
+  # ─── Speaking ─────────────────────────────────────────────────────────────────
+  /speaking/sessions:
+    get:
+      operationId: listSpeakingSessions
+      tags: [speaking]
+      summary: List speaking practice sessions
+      responses:
+        "200":
+          description: Sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SpeakingSession"
+    post:
+      operationId: createSpeakingSession
+      tags: [speaking]
+      summary: Create a speaking session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SpeakingSessionInput"
+      responses:
+        "201":
+          description: Created session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpeakingSession"
+
+  /speaking/sessions/{id}/submit:
+    post:
+      operationId: submitSpeakingRecording
+      tags: [speaking]
+      summary: Submit audio transcription and get pronunciation score/feedback
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SpeakingSubmission"
+      responses:
+        "200":
+          description: Pronunciation feedback
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpeakingFeedback"
+
+  # ─── Gamification ─────────────────────────────────────────────────────────────
+  /gamification/badges:
+    get:
+      operationId: listBadges
+      tags: [gamification]
+      summary: List all badges and user's earned badges
+      responses:
+        "200":
+          description: Badges
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Badge"
+
+  /gamification/daily-challenge:
+    get:
+      operationId: getDailyChallenge
+      tags: [gamification]
+      summary: Get today's daily challenge
+      responses:
+        "200":
+          description: Daily challenge
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyChallenge"
+
+  /gamification/daily-challenge/complete:
+    post:
+      operationId: completeDailyChallenge
+      tags: [gamification]
+      summary: Submit daily challenge completion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DailyChallengeCompletionInput"
+      responses:
+        "200":
+          description: Result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyChallengeCompletion"
+
+  # ─── Leaderboard ──────────────────────────────────────────────────────────────
+  /leaderboard:
+    get:
+      operationId: getLeaderboard
+      tags: [leaderboard]
+      summary: Get weekly leaderboard rankings
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [weekly, alltime]
+            default: weekly
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Leaderboard entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LeaderboardEntry"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +541,522 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    UserProfile:
+      type: object
+      required: [id, clerkId, displayName, email, level, xp, streak, createdAt]
+      properties:
+        id:
+          type: integer
+        clerkId:
+          type: string
+        displayName:
+          type: string
+        email:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+        level:
+          type: integer
+        xp:
+          type: integer
+        streak:
+          type: integer
+        targetLanguageLevel:
+          type: string
+          enum: [beginner, intermediate, advanced]
+        createdAt:
+          type: string
+          format: date-time
+
+    UserProfileUpdate:
+      type: object
+      properties:
+        displayName:
+          type: string
+        targetLanguageLevel:
+          type: string
+          enum: [beginner, intermediate, advanced]
+
+    UserStats:
+      type: object
+      required: [totalWordsLearned, totalLessonsCompleted, totalChatMessages, totalSpeakingSessions, currentStreak, longestStreak, totalXp, level, skillBreakdown, weeklyProgress]
+      properties:
+        totalWordsLearned:
+          type: integer
+        totalLessonsCompleted:
+          type: integer
+        totalChatMessages:
+          type: integer
+        totalSpeakingSessions:
+          type: integer
+        currentStreak:
+          type: integer
+        longestStreak:
+          type: integer
+        totalXp:
+          type: integer
+        level:
+          type: integer
+        skillBreakdown:
+          $ref: "#/components/schemas/SkillBreakdown"
+        weeklyProgress:
+          type: array
+          items:
+            $ref: "#/components/schemas/DailyProgress"
+
+    SkillBreakdown:
+      type: object
+      required: [vocabulary, grammar, speaking, listening, reading]
+      properties:
+        vocabulary:
+          type: integer
+        grammar:
+          type: integer
+        speaking:
+          type: integer
+        listening:
+          type: integer
+        reading:
+          type: integer
+
+    DailyProgress:
+      type: object
+      required: [date, xp, lessonsCompleted]
+      properties:
+        date:
+          type: string
+        xp:
+          type: integer
+        lessonsCompleted:
+          type: integer
+
+    ActivityEntry:
+      type: object
+      required: [id, type, description, xpEarned, createdAt]
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [lesson_completed, word_learned, chat_session, speaking_session, badge_earned, daily_challenge, streak_milestone]
+        description:
+          type: string
+        xpEarned:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    DashboardSummary:
+      type: object
+      required: [user, currentStreak, totalXp, level, xpToNextLevel, wordsLearned, wordsDueReview, lessonsCompleted, todayXp, recentBadges, topLeaderboardRank]
+      properties:
+        user:
+          $ref: "#/components/schemas/UserProfile"
+        currentStreak:
+          type: integer
+        totalXp:
+          type: integer
+        level:
+          type: integer
+        xpToNextLevel:
+          type: integer
+        wordsLearned:
+          type: integer
+        wordsDueReview:
+          type: integer
+        lessonsCompleted:
+          type: integer
+        todayXp:
+          type: integer
+        recentBadges:
+          type: array
+          items:
+            $ref: "#/components/schemas/Badge"
+        topLeaderboardRank:
+          type: ["integer", "null"]
+
+    VocabularyWord:
+      type: object
+      required: [id, word, definition, partOfSpeech, status, reviewCount, nextReviewAt, createdAt]
+      properties:
+        id:
+          type: integer
+        word:
+          type: string
+        definition:
+          type: string
+        partOfSpeech:
+          type: string
+        exampleSentence:
+          type: ["string", "null"]
+        pronunciation:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [new, learning, mastered, difficult]
+        reviewCount:
+          type: integer
+        nextReviewAt:
+          type: ["string", "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    VocabularyWordInput:
+      type: object
+      required: [word, definition]
+      properties:
+        word:
+          type: string
+        definition:
+          type: string
+        partOfSpeech:
+          type: string
+        exampleSentence:
+          type: string
+        pronunciation:
+          type: string
+
+    VocabularyWordUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [new, learning, mastered, difficult]
+        definition:
+          type: string
+        exampleSentence:
+          type: string
+
+    ReviewResult:
+      type: object
+      required: [quality]
+      properties:
+        quality:
+          type: integer
+          description: "SM-2 quality rating 0-5"
+
+    Lesson:
+      type: object
+      required: [id, title, description, level, category, xpReward, estimatedMinutes, isCompleted, order]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        level:
+          type: string
+          enum: [beginner, intermediate, advanced]
+        category:
+          type: string
+        xpReward:
+          type: integer
+        estimatedMinutes:
+          type: integer
+        isCompleted:
+          type: boolean
+        order:
+          type: integer
+        coverEmoji:
+          type: ["string", "null"]
+
+    LessonDetail:
+      type: object
+      required: [id, title, description, level, category, xpReward, estimatedMinutes, isCompleted, order, content, exercises]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        level:
+          type: string
+          enum: [beginner, intermediate, advanced]
+        category:
+          type: string
+        xpReward:
+          type: integer
+        estimatedMinutes:
+          type: integer
+        isCompleted:
+          type: boolean
+        order:
+          type: integer
+        coverEmoji:
+          type: ["string", "null"]
+        content:
+          type: string
+        exercises:
+          type: array
+          items:
+            $ref: "#/components/schemas/Exercise"
+
+    Exercise:
+      type: object
+      required: [id, type, question, options, correctAnswer]
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [multiple_choice, fill_blank, translation, reorder]
+        question:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+        correctAnswer:
+          type: string
+        explanation:
+          type: ["string", "null"]
+
+    LessonCompletionInput:
+      type: object
+      required: [score]
+      properties:
+        score:
+          type: integer
+          description: "Score 0-100"
+        timeSpentSeconds:
+          type: integer
+
+    LessonCompletion:
+      type: object
+      required: [xpEarned, newLevel, newBadges, currentStreak]
+      properties:
+        xpEarned:
+          type: integer
+        newLevel:
+          type: ["integer", "null"]
+        newBadges:
+          type: array
+          items:
+            $ref: "#/components/schemas/Badge"
+        currentStreak:
+          type: integer
+
+    ChatSession:
+      type: object
+      required: [id, topic, messageCount, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        topic:
+          type: string
+        messageCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ChatSessionInput:
+      type: object
+      required: [topic]
+      properties:
+        topic:
+          type: string
+
+    ChatMessage:
+      type: object
+      required: [id, sessionId, role, content, createdAt]
+      properties:
+        id:
+          type: integer
+        sessionId:
+          type: integer
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        grammarErrors:
+          type: ["array", "null"]
+          items:
+            $ref: "#/components/schemas/GrammarError"
+        suggestions:
+          type: ["array", "null"]
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    ChatMessageInput:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+
+    ChatResponse:
+      type: object
+      required: [userMessage, assistantMessage]
+      properties:
+        userMessage:
+          $ref: "#/components/schemas/ChatMessage"
+        assistantMessage:
+          $ref: "#/components/schemas/ChatMessage"
+
+    GrammarError:
+      type: object
+      required: [original, corrected, explanation]
+      properties:
+        original:
+          type: string
+        corrected:
+          type: string
+        explanation:
+          type: string
+        explanationVi:
+          type: ["string", "null"]
+
+    SpeakingSession:
+      type: object
+      required: [id, targetText, score, createdAt]
+      properties:
+        id:
+          type: integer
+        targetText:
+          type: string
+        score:
+          type: ["integer", "null"]
+        feedback:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    SpeakingSessionInput:
+      type: object
+      required: [targetText]
+      properties:
+        targetText:
+          type: string
+
+    SpeakingSubmission:
+      type: object
+      required: [transcription]
+      properties:
+        transcription:
+          type: string
+
+    SpeakingFeedback:
+      type: object
+      required: [score, feedback, phonemeErrors, suggestions]
+      properties:
+        score:
+          type: integer
+        feedback:
+          type: string
+        phonemeErrors:
+          type: array
+          items:
+            $ref: "#/components/schemas/PhonemeError"
+        suggestions:
+          type: array
+          items:
+            type: string
+
+    PhonemeError:
+      type: object
+      required: [word, expected, got]
+      properties:
+        word:
+          type: string
+        expected:
+          type: string
+        got:
+          type: string
+
+    Badge:
+      type: object
+      required: [id, name, description, icon, category, isEarned]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        icon:
+          type: string
+        category:
+          type: string
+          enum: [streak, vocabulary, lessons, speaking, chat, special]
+        isEarned:
+          type: boolean
+        earnedAt:
+          type: ["string", "null"]
+          format: date-time
+
+    DailyChallenge:
+      type: object
+      required: [id, date, type, title, description, xpReward, isCompleted]
+      properties:
+        id:
+          type: integer
+        date:
+          type: string
+        type:
+          type: string
+          enum: [vocabulary, grammar, speaking, chat, reading]
+        title:
+          type: string
+        description:
+          type: string
+        xpReward:
+          type: integer
+        isCompleted:
+          type: boolean
+        content:
+          type: ["string", "null"]
+
+    DailyChallengeCompletionInput:
+      type: object
+      required: [score]
+      properties:
+        score:
+          type: integer
+
+    DailyChallengeCompletion:
+      type: object
+      required: [xpEarned, newBadges]
+      properties:
+        xpEarned:
+          type: integer
+        newBadges:
+          type: array
+          items:
+            $ref: "#/components/schemas/Badge"
+
+    LeaderboardEntry:
+      type: object
+      required: [rank, userId, displayName, avatarUrl, xp, level, streak]
+      properties:
+        rank:
+          type: integer
+        userId:
+          type: integer
+        displayName:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+        xp:
+          type: integer
+        level:
+          type: integer
+        streak:
+          type: integer
+        isCurrentUser:
+          type: boolean
