@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import WaveSurfer from "wavesurfer.js";
-import { Music, Image, Play, Pause, Wand2, SkipBack, Upload } from "lucide-react";
+import { Music, Image, Play, Pause, Wand2, SkipBack, Upload, Loader2 } from "lucide-react";
 
 interface LyricLine {
   text: string;
@@ -14,6 +14,110 @@ function formatTime(s: number) {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
+/**
+ * Analyze audio file and return N-1 best cut points (in seconds)
+ * by finding the most prominent energy dips in the signal.
+ */
+async function findBestCutPoints(file: File, numCuts: number): Promise<number[]> {
+  if (numCuts <= 0) return [];
+
+  const arrayBuffer = await file.arrayBuffer();
+  const audioCtx = new AudioContext();
+  let buffer: AudioBuffer;
+  try {
+    buffer = await audioCtx.decodeAudioData(arrayBuffer);
+  } finally {
+    audioCtx.close();
+  }
+
+  const data = buffer.getChannelData(0);
+  const sr = buffer.sampleRate;
+  const totalDuration = buffer.duration;
+  const hopMs = 50; // 50ms frames
+  const hopSamples = Math.floor((sr * hopMs) / 1000);
+  const frames = Math.floor(data.length / hopSamples);
+
+  // 1. Compute RMS energy per frame
+  const energy = new Float32Array(frames);
+  for (let f = 0; f < frames; f++) {
+    let sum = 0;
+    const start = f * hopSamples;
+    const end = Math.min(start + hopSamples, data.length);
+    for (let i = start; i < end; i++) sum += data[i] * data[i];
+    energy[f] = Math.sqrt(sum / (end - start));
+  }
+
+  // 2. Smooth with a 300ms moving average
+  const smoothWin = Math.max(1, Math.round(300 / hopMs));
+  const smoothed = new Float32Array(frames);
+  let runSum = 0;
+  for (let i = 0; i < Math.min(smoothWin, frames); i++) runSum += energy[i];
+  for (let f = 0; f < frames; f++) {
+    const lo = f - Math.floor(smoothWin / 2);
+    const hi = lo + smoothWin;
+    if (f > 0) {
+      if (lo - 1 >= 0) runSum -= energy[lo - 1];
+      if (hi - 1 < frames) runSum += energy[hi - 1];
+    }
+    smoothed[f] = runSum / smoothWin;
+  }
+
+  // 3. Find local minima (avoid first/last 5% of audio)
+  const guardFrames = Math.floor(frames * 0.05);
+  const contextFrames = Math.max(3, Math.round(400 / hopMs)); // 400ms context
+
+  const minima: { frame: number; score: number }[] = [];
+  for (let f = guardFrames + contextFrames; f < frames - guardFrames - contextFrames; f++) {
+    // Is it a local minimum within ±contextFrames?
+    let isMin = true;
+    for (let d = 1; d <= contextFrames; d++) {
+      if (smoothed[f] > smoothed[f - d] || smoothed[f] > smoothed[f + d]) {
+        isMin = false;
+        break;
+      }
+    }
+    if (!isMin) continue;
+
+    // Score = depth of dip relative to surrounding peaks
+    const leftPeak = Math.max(...Array.from(smoothed.slice(Math.max(0, f - contextFrames * 3), f)));
+    const rightPeak = Math.max(...Array.from(smoothed.slice(f + 1, Math.min(frames, f + contextFrames * 3 + 1))));
+    const surroundPeak = Math.max(leftPeak, rightPeak);
+    if (surroundPeak === 0) continue;
+
+    const score = 1 - smoothed[f] / surroundPeak;
+    if (score > 0.05) {
+      minima.push({ frame: f, score });
+    }
+  }
+
+  // 4. Cluster-aware selection: avoid picking cuts that are too close together
+  minima.sort((a, b) => b.score - a.score);
+  const minGapFrames = Math.round(1000 / hopMs); // min 1s between cuts
+
+  const selected: { frame: number; score: number }[] = [];
+  for (const m of minima) {
+    if (selected.length >= numCuts) break;
+    const tooClose = selected.some((s) => Math.abs(s.frame - m.frame) < minGapFrames);
+    if (!tooClose) selected.push(m);
+  }
+
+  // 5. If we still don't have enough cuts, fill with evenly spaced cuts
+  if (selected.length < numCuts) {
+    const evenStep = totalDuration / (numCuts + 1);
+    for (let i = 1; selected.length < numCuts; i++) {
+      const t = i * evenStep;
+      const frame = Math.round((t / totalDuration) * frames);
+      const tooClose = selected.some(
+        (s) => Math.abs((s.frame / frames) * totalDuration - t) < 1.0
+      );
+      if (!tooClose) selected.push({ frame, score: 0 });
+    }
+  }
+
+  selected.sort((a, b) => a.frame - b.frame);
+  return selected.map((s) => (s.frame / frames) * totalDuration);
+}
+
 export default function App() {
   const [coverImage, setCoverImage] = useState<string | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -25,12 +129,12 @@ export default function App() {
   const [duration, setDuration] = useState(0);
   const [currentLineIndex, setCurrentLineIndex] = useState(-1);
   const [isReady, setIsReady] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const waveformRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
   const lyricsViewRef = useRef<HTMLDivElement>(null);
 
-  // Init / reload WaveSurfer when audio changes
   useEffect(() => {
     if (!waveformRef.current || !audioUrl) return;
 
@@ -72,13 +176,9 @@ export default function App() {
     ws.on("finish", () => setIsPlaying(false));
 
     wavesurferRef.current = ws;
-
-    return () => {
-      ws.destroy();
-    };
+    return () => { ws.destroy(); };
   }, [audioUrl]);
 
-  // Update current lyric line
   useEffect(() => {
     if (!lyricsLines.length) return;
     let idx = -1;
@@ -88,57 +188,69 @@ export default function App() {
     setCurrentLineIndex(idx);
   }, [currentTime, lyricsLines]);
 
-  // Auto-scroll lyrics in preview
   useEffect(() => {
     if (!lyricsViewRef.current || currentLineIndex < 0) return;
     const el = lyricsViewRef.current.querySelector<HTMLElement>(`[data-line="${currentLineIndex}"]`);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [currentLineIndex]);
 
   const handleCoverUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const prev = coverImage;
-    if (prev) URL.revokeObjectURL(prev);
+    if (coverImage) URL.revokeObjectURL(coverImage);
     setCoverImage(URL.createObjectURL(file));
   };
 
   const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const prev = audioUrl;
-    if (prev) URL.revokeObjectURL(prev);
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioFile(file);
     setAudioUrl(URL.createObjectURL(file));
     setLyricsLines([]);
     setCurrentLineIndex(-1);
   };
 
-  const handleAutoTimeline = () => {
-    if (!duration || !lyricsText.trim()) return;
+  const handleAutoTimeline = async () => {
+    if (!audioFile || !duration || !lyricsText.trim()) return;
+
     const lines = lyricsText
       .split("\n")
       .map((l) => l.trim())
       .filter(Boolean);
     if (!lines.length) return;
 
-    const timePerLine = duration / lines.length;
-    setLyricsLines(
-      lines.map((text, i) => ({
-        text,
-        start: i * timePerLine,
-        end: (i + 1) * timePerLine,
-      }))
-    );
-    setCurrentLineIndex(-1);
+    setIsAnalyzing(true);
+    setLyricsLines([]);
+
+    try {
+      const cuts = await findBestCutPoints(audioFile, lines.length - 1);
+      const boundaries = [0, ...cuts, duration];
+
+      setLyricsLines(
+        lines.map((text, i) => ({
+          text,
+          start: boundaries[i],
+          end: boundaries[i + 1] ?? duration,
+        }))
+      );
+      setCurrentLineIndex(-1);
+    } catch {
+      // Fallback: even distribution
+      const step = duration / lines.length;
+      setLyricsLines(
+        lines.map((text, i) => ({
+          text,
+          start: i * step,
+          end: (i + 1) * step,
+        }))
+      );
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
-  const handlePlayPause = () => {
-    wavesurferRef.current?.playPause();
-  };
-
+  const handlePlayPause = () => wavesurferRef.current?.playPause();
   const handleRestart = () => {
     if (!wavesurferRef.current) return;
     wavesurferRef.current.seekTo(0);
@@ -146,12 +258,7 @@ export default function App() {
   };
 
   const lineCount = lyricsText.split("\n").filter((l) => l.trim()).length;
-
-  // Which lines to show in the preview (window around current)
   const windowSize = 5;
-  const previewLines = lyricsLines.length > 0
-    ? lyricsLines.map((line, i) => ({ ...line, idx: i }))
-    : [];
 
   return (
     <div className="min-h-screen bg-[#080808] text-white flex flex-col select-none">
@@ -175,18 +282,18 @@ export default function App() {
                 <input type="file" accept="image/*" className="sr-only" onChange={handleCoverUpload} />
                 <div className="aspect-video rounded-xl overflow-hidden border border-white/[0.08] group-hover:border-violet-500/40 transition-colors relative bg-white/[0.03]">
                   {coverImage ? (
-                    <img src={coverImage} className="w-full h-full object-cover" alt="cover" />
+                    <>
+                      <img src={coverImage} className="w-full h-full object-cover" alt="cover" />
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                        <Upload className="w-6 h-6 text-white" />
+                      </div>
+                    </>
                   ) : (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
                       <div className="w-10 h-10 rounded-xl bg-white/[0.05] group-hover:bg-violet-500/10 flex items-center justify-center transition-colors">
                         <Image className="w-5 h-5 text-white/20 group-hover:text-violet-400 transition-colors" />
                       </div>
                       <p className="text-xs text-white/25 group-hover:text-white/40 transition-colors">Upload cover image</p>
-                    </div>
-                  )}
-                  {coverImage && (
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                      <Upload className="w-6 h-6 text-white" />
                     </div>
                   )}
                 </div>
@@ -229,31 +336,46 @@ export default function App() {
             <section>
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[10px] font-semibold tracking-[0.12em] uppercase text-white/40">Lyrics</p>
-                {lineCount > 0 && (
-                  <span className="text-[10px] text-white/30">{lineCount} dòng</span>
-                )}
+                {lineCount > 0 && <span className="text-[10px] text-white/30">{lineCount} dòng</span>}
               </div>
               <textarea
                 value={lyricsText}
                 onChange={(e) => setLyricsText(e.target.value)}
-                placeholder={"Nhập lyrics ở đây...\nMỗi dòng là một câu\nAuto Timeline sẽ tự chia thời gian"}
+                placeholder={"Nhập lyrics ở đây...\nMỗi dòng là một câu\nAuto Timeline sẽ tự xác định thời điểm"}
                 className="w-full h-48 bg-white/[0.03] border border-white/[0.08] focus:border-violet-500/40 rounded-xl p-4 text-sm text-white/70 placeholder-white/20 resize-none outline-none transition-all font-mono leading-relaxed"
               />
             </section>
 
-            {/* Auto Timeline */}
-            <button
-              onClick={handleAutoTimeline}
-              disabled={!isReady || !lyricsText.trim()}
-              className="w-full h-11 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all
-                bg-gradient-to-r from-violet-600 to-fuchsia-600
-                hover:from-violet-500 hover:to-fuchsia-500
-                shadow-lg shadow-violet-500/20
-                disabled:opacity-25 disabled:cursor-not-allowed disabled:shadow-none"
-            >
-              <Wand2 className="w-4 h-4" />
-              Auto Timeline
-            </button>
+            {/* Auto Timeline Button */}
+            <div className="space-y-2">
+              <button
+                onClick={handleAutoTimeline}
+                disabled={!isReady || !lyricsText.trim() || isAnalyzing}
+                className="w-full h-11 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all
+                  bg-gradient-to-r from-violet-600 to-fuchsia-600
+                  hover:from-violet-500 hover:to-fuchsia-500
+                  shadow-lg shadow-violet-500/20
+                  disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none"
+              >
+                {isAnalyzing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Đang phân tích âm thanh...
+                  </>
+                ) : (
+                  <>
+                    <Wand2 className="w-4 h-4" />
+                    Auto Timeline
+                  </>
+                )}
+              </button>
+
+              {/* Method explanation */}
+              <p className="text-[10px] text-white/25 text-center leading-relaxed">
+                Phân tích năng lượng âm thanh để tìm khoảng lặng tự nhiên,<br />
+                tự động gán timestamp cho từng dòng lyrics
+              </p>
+            </div>
 
             {/* Timeline list */}
             {lyricsLines.length > 0 && (
@@ -271,8 +393,11 @@ export default function App() {
                           : "text-white/40 hover:bg-white/[0.04]"
                       }`}
                     >
-                      <span className="font-mono text-violet-400/70 shrink-0">{formatTime(line.start)}</span>
+                      <span className="font-mono text-violet-400/70 shrink-0 tabular-nums">{formatTime(line.start)}</span>
                       <span className="truncate">{line.text}</span>
+                      <span className="font-mono text-white/20 shrink-0 ml-auto tabular-nums text-[10px]">
+                        {(line.end - line.start).toFixed(1)}s
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -287,8 +412,6 @@ export default function App() {
           {/* 16:9 Video Preview */}
           <div className="w-full max-w-[800px]">
             <div className="aspect-video rounded-2xl overflow-hidden relative shadow-2xl shadow-black/70 ring-1 ring-white/[0.06]">
-
-              {/* Background layers */}
               {coverImage ? (
                 <>
                   <img
@@ -297,15 +420,20 @@ export default function App() {
                     style={{ filter: "blur(24px) brightness(0.35) saturate(1.4)" }}
                     alt=""
                   />
-                  <img
-                    src={coverImage}
-                    className="absolute inset-0 w-full h-full object-contain"
-                    alt="cover"
-                  />
+                  <img src={coverImage} className="absolute inset-0 w-full h-full object-contain" alt="cover" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-transparent" />
                 </>
               ) : (
                 <div className="absolute inset-0 bg-gradient-to-br from-[#1a0533] via-[#0d1b3e] to-[#050d1a]" />
+              )}
+
+              {/* Analyzing overlay */}
+              {isAnalyzing && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 backdrop-blur-sm z-10">
+                  <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
+                  <p className="text-sm text-white/70">Đang phân tích âm thanh...</p>
+                  <p className="text-xs text-white/30">Tìm điểm dừng tự nhiên trong bài nhạc</p>
+                </div>
               )}
 
               {/* Lyrics overlay */}
@@ -313,21 +441,18 @@ export default function App() {
                 ref={lyricsViewRef}
                 className="absolute inset-0 flex flex-col items-center justify-center overflow-hidden px-10 py-10"
               >
-                {previewLines.length > 0 ? (
+                {lyricsLines.length > 0 ? (
                   <div className="w-full flex flex-col items-center gap-2 text-center">
-                    {previewLines.map((line) => {
-                      const isCurrent = line.idx === currentLineIndex;
-                      const isPast = line.idx < currentLineIndex;
-                      const distance = Math.abs(line.idx - Math.max(0, currentLineIndex));
-
-                      // Visibility: only show lines within window
-                      const visible = distance <= windowSize;
-                      if (!visible) return null;
+                    {lyricsLines.map((line, i) => {
+                      const isCurrent = i === currentLineIndex;
+                      const isPast = i < currentLineIndex;
+                      const distance = Math.abs(i - Math.max(0, currentLineIndex));
+                      if (distance > windowSize) return null;
 
                       return (
                         <p
-                          key={line.idx}
-                          data-line={line.idx}
+                          key={i}
+                          data-line={i}
                           className="lyric-line leading-tight"
                           style={{
                             fontSize: isCurrent ? "clamp(1.1rem, 2.8vw, 1.6rem)" : "clamp(0.75rem, 1.8vw, 1rem)",
@@ -349,24 +474,25 @@ export default function App() {
                     })}
                   </div>
                 ) : (
-                  <div className="text-center space-y-3">
-                    <div className="w-14 h-14 rounded-full bg-white/[0.06] flex items-center justify-center mx-auto">
-                      <Music className="w-7 h-7 text-white/15" />
+                  !isAnalyzing && (
+                    <div className="text-center space-y-3">
+                      <div className="w-14 h-14 rounded-full bg-white/[0.06] flex items-center justify-center mx-auto">
+                        <Music className="w-7 h-7 text-white/15" />
+                      </div>
+                      <p className="text-white/20 text-sm">
+                        {!audioFile
+                          ? "Upload nhạc và nhập lyrics để bắt đầu"
+                          : !lyricsText.trim()
+                            ? "Nhập lyrics vào ô bên trái"
+                            : !isReady
+                              ? "Đang tải audio..."
+                              : "Nhấn Auto Timeline để đồng bộ"}
+                      </p>
                     </div>
-                    <p className="text-white/20 text-sm">
-                      {!audioFile
-                        ? "Upload nhạc và nhập lyrics để bắt đầu"
-                        : !lyricsText.trim()
-                          ? "Nhập lyrics vào ô bên trái"
-                          : !isReady
-                            ? "Đang tải audio..."
-                            : "Nhấn Auto Timeline để đồng bộ"}
-                    </p>
-                  </div>
+                  )
                 )}
               </div>
 
-              {/* Time badge */}
               {isReady && (
                 <div className="absolute bottom-3 right-3 text-[10px] font-mono text-white/30 bg-black/40 px-2 py-1 rounded-md backdrop-blur-sm">
                   {formatTime(currentTime)} / {formatTime(duration)}
@@ -379,29 +505,18 @@ export default function App() {
           <div className="w-full max-w-[800px] bg-white/[0.04] border border-white/[0.07] rounded-2xl p-5">
             {audioUrl ? (
               <div className="space-y-4">
-                {/* Waveform */}
-                <div
-                  ref={waveformRef}
-                  className="w-full rounded-lg overflow-hidden cursor-pointer"
-                />
-
-                {/* Controls row */}
+                <div ref={waveformRef} className="w-full rounded-lg overflow-hidden cursor-pointer" />
                 <div className="flex items-center gap-4">
-                  {/* Restart */}
                   <button
                     onClick={handleRestart}
                     disabled={!isReady}
-                    title="Restart"
                     className="w-9 h-9 rounded-full bg-white/[0.07] hover:bg-white/[0.12] flex items-center justify-center transition-colors disabled:opacity-25"
                   >
                     <SkipBack className="w-4 h-4 text-white/70" />
                   </button>
-
-                  {/* Play/Pause */}
                   <button
                     onClick={handlePlayPause}
                     disabled={!isReady}
-                    title={isPlaying ? "Pause" : "Play"}
                     className="w-12 h-12 rounded-full bg-white flex items-center justify-center hover:scale-105 active:scale-95 transition-transform shadow-lg shadow-black/30 disabled:opacity-25"
                   >
                     {isPlaying
@@ -409,8 +524,6 @@ export default function App() {
                       : <Play className="w-5 h-5 text-black ml-0.5" />
                     }
                   </button>
-
-                  {/* Track info */}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-white/80 truncate">
                       {audioFile?.name.replace(/\.[^/.]+$/, "")}
@@ -419,14 +532,12 @@ export default function App() {
                       {formatTime(currentTime)}
                       <span className="text-white/20"> / {formatTime(duration)}</span>
                       {lyricsLines.length > 0 && currentLineIndex >= 0 && (
-                        <span className="ml-2 text-violet-400/70 not-mono font-sans">
+                        <span className="ml-2 text-violet-400/70 font-sans">
                           · dòng {currentLineIndex + 1}/{lyricsLines.length}
                         </span>
                       )}
                     </p>
                   </div>
-
-                  {/* Status pill */}
                   {lyricsLines.length > 0 && (
                     <div className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-violet-500/10 border border-violet-500/20">
                       <div className={`w-1.5 h-1.5 rounded-full ${isPlaying ? "bg-violet-400 animate-pulse" : "bg-violet-500/40"}`} />
@@ -446,13 +557,6 @@ export default function App() {
               </div>
             )}
           </div>
-
-          {/* Hint */}
-          {!lyricsLines.length && isReady && lyricsText.trim() && (
-            <p className="text-xs text-white/25 text-center">
-              ↑ Nhấn <span className="text-violet-400/60">Auto Timeline</span> để AI chia thời gian lyrics theo độ dài bài nhạc
-            </p>
-          )}
         </main>
       </div>
     </div>
