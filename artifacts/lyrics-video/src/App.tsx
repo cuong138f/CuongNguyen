@@ -673,17 +673,36 @@ export default function App() {
               {/* Lyrics overlay */}
               <div
                 ref={lyricsViewRef}
-                className="absolute inset-0 flex flex-col items-center justify-center overflow-hidden px-10 py-10 gap-5"
+                className="absolute inset-0 flex flex-col justify-end items-center overflow-hidden px-10 pb-10 gap-3"
               >
                 {lyricsLines.length > 0 ? (
                   currentLineIndex >= 0 ? (
-                    /* ── 2-line display: current (wipe) + next (preview) ── */
+                    /* ── 2-line display: next (above) + current (bottom, fly-up) ── */
                     <>
-                      {/* Current line — disappears left to right as it plays */}
+                      {/* Next line — preview, flies up softly, sits above current */}
+                      {nextLine && (
+                        <p
+                          key={`next-${currentLineIndex}`}
+                          className="lyric-fly-next text-center"
+                          style={{
+                            fontSize: "clamp(0.82rem, 2vw, 1.15rem)",
+                            fontWeight: 400,
+                            color: "rgba(255,255,255,0.38)",
+                            textShadow: "0 1px 8px rgba(0,0,0,0.8)",
+                            maxWidth: "78%",
+                            lineHeight: 1.4,
+                          }}
+                        >
+                          {nextLine.text}
+                        </p>
+                      )}
+
+                      {/* Current line — flies up, wipes left→right as it plays */}
                       <div
-                        className="text-center transition-all duration-300"
+                        key={`cur-${currentLineIndex}`}
+                        className="lyric-fly-current text-center"
                         style={{
-                          maxWidth: "88%",
+                          maxWidth: "90%",
                           WebkitMaskImage: wipeMask,
                           maskImage: wipeMask,
                         }}
@@ -694,7 +713,7 @@ export default function App() {
                             fontWeight: 700,
                             color: "#ffffff",
                             textShadow:
-                              "0 0 38px rgba(168,85,247,0.8), 0 2px 14px rgba(0,0,0,0.95)",
+                              "0 0 40px rgba(168,85,247,0.85), 0 2px 16px rgba(0,0,0,0.95)",
                             letterSpacing: "0.01em",
                             lineHeight: 1.3,
                           }}
@@ -702,23 +721,6 @@ export default function App() {
                           {currentLine?.text}
                         </p>
                       </div>
-
-                      {/* Next line — appears before its turn so viewer can read ahead */}
-                      {nextLine && (
-                        <p
-                          className="text-center transition-opacity duration-500"
-                          style={{
-                            fontSize: "clamp(0.85rem, 2.1vw, 1.25rem)",
-                            fontWeight: 400,
-                            color: "rgba(255,255,255,0.42)",
-                            textShadow: "0 1px 6px rgba(0,0,0,0.7)",
-                            maxWidth: "80%",
-                            lineHeight: 1.4,
-                          }}
-                        >
-                          {nextLine.text}
-                        </p>
-                      )}
                     </>
                   ) : (
                     /* ── Intro: timeline set but not reached first lyric yet ── */
