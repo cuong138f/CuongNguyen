@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import WaveSurfer from "wavesurfer.js";
-import { Music, Image, Play, Pause, Wand2, SkipBack, Upload, Loader2, Sparkles, Pencil, Check, X, Download } from "lucide-react";
+import { Music, Image, Play, Pause, Wand2, SkipBack, Upload, Loader2, Sparkles, Pencil, Check, X, Download, Scissors } from "lucide-react";
 
 interface LyricLine {
   text: string;
@@ -481,6 +481,35 @@ export default function App() {
 
   const cancelEditLine = () => setEditingLineIndex(null);
 
+  // Split a line into two halves at the nearest word boundary to the middle
+  const splitLine = (i: number) => {
+    const line = lyricsLines[i];
+    const words = line.text.trim().split(/\s+/);
+    if (words.length < 2) return; // nothing to split
+    const mid = Math.ceil(words.length / 2);
+    const firstHalf = words.slice(0, mid).join(" ");
+    const secondHalf = words.slice(mid).join(" ");
+    const midTime = (line.start + line.end) / 2;
+    const newLines = [
+      ...lyricsLines.slice(0, i),
+      { ...line, text: firstHalf, end: midTime },
+      { ...line, text: secondHalf, start: midTime },
+      ...lyricsLines.slice(i + 1),
+    ];
+    setLyricsLines(newLines);
+    setLyricsText(newLines.map((l) => l.text).join("\n"));
+  };
+
+  // Canvas color map — one entry per lyric style id
+  const CANVAS_COLORS: Record<LyricStyleId, { fill: string; glow: string }> = {
+    purple: { fill: "#F2EEFF", glow: "rgba(150,110,255,0.85)" },
+    gold:   { fill: "#FFD700", glow: "rgba(255,180,0,0.90)"  },
+    fire:   { fill: "#FF7030", glow: "rgba(255,80,0,0.85)"   },
+    ice:    { fill: "#7DF9FF", glow: "rgba(100,240,255,0.90)" },
+    rose:   { fill: "#FF80B5", glow: "rgba(255,80,150,0.90)" },
+    green:  { fill: "#69FF47", glow: "rgba(80,255,50,0.90)"  },
+  };
+
   const handleExportVideo = async () => {
     if (!wavesurferRef.current || !isReady) return;
     setIsExporting(true);
@@ -491,7 +520,7 @@ export default function App() {
     canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext("2d")!;
 
-    // Audio stream from wavesurfer's media element
+    // Audio stream
     const mediaEl = wavesurferRef.current.getMediaElement() as HTMLMediaElement & {
       captureStream?: () => MediaStream;
       mozCaptureStream?: () => MediaStream;
@@ -519,7 +548,12 @@ export default function App() {
       setExportProgress(0);
     };
 
-    // Preload cover image onto canvas-friendly Image
+    // Snapshot style + effect at export time
+    const styleColors = CANVAS_COLORS[lyricStyleId] ?? CANVAS_COLORS.purple;
+    const effect = lyricEffect;
+    const WIPE_HOLD_EXP = 1.5;
+
+    // Preload cover image
     let coverImg: HTMLImageElement | null = null;
     if (coverImage) {
       coverImg = new window.Image();
@@ -527,7 +561,7 @@ export default function App() {
       await new Promise<void>((r) => { coverImg!.onload = r; coverImg!.onerror = r; });
     }
 
-    const lines = lyricsLines; // snapshot
+    const lines = lyricsLines;
     const totalDur = wavesurferRef.current.getDuration();
     wavesurferRef.current.seekTo(0);
     await new Promise((r) => setTimeout(r, 100));
@@ -572,39 +606,65 @@ export default function App() {
       ov.addColorStop(0, "rgba(0,0,0,0)"); ov.addColorStop(1, "rgba(0,0,0,0.9)");
       ctx.fillStyle = ov; ctx.fillRect(0, 0, W, H);
 
-      // Find current line
+      // Find current line — only one line rendered, no next-line overlay
       let curIdx = -1;
       for (let i = 0; i < lines.length; i++) {
         if (time >= lines[i].start && time < lines[i].end) { curIdx = i; break; }
       }
 
       if (curIdx >= 0) {
-        const cLine = lines[curIdx], nLine = lines[curIdx + 1];
-        const lp = Math.max(0, Math.min(1, (time - cLine.start) / Math.max(0.001, cLine.end - cLine.start)));
-        const gf = Math.max(0, Math.min(1, (lp - 0.72) / 0.28));
+        const cLine = lines[curIdx];
+        const lineDur = Math.max(0.001, cLine.end - cLine.start);
+        const lineElapsed = Math.max(0, time - cLine.start);
+        const lp = Math.min(1, lineElapsed / lineDur); // full line progress 0→1
 
-        // Next line — grows as current wipes
-        if (nLine) {
+        // Wipe progress: hold for 1.5 s, then sweep
+        const wp = lineDur > WIPE_HOLD_EXP
+          ? Math.max(0, Math.min(1, (lineElapsed - WIPE_HOLD_EXP) / (lineDur - WIPE_HOLD_EXP)))
+          : lp;
+
+        const textY = H - 40;
+        ctx.save();
+        ctx.font = "bold 54px Inter, system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+
+        if (effect === "karaoke") {
+          // 1 — dim base (full text)
+          ctx.globalAlpha = 0.28;
+          ctx.fillStyle = styleColors.fill;
+          ctx.fillText(cLine.text, W / 2, textY);
+          // 2 — bright revealed portion (clip left side by lp)
+          ctx.globalAlpha = 1;
           ctx.save();
-          const nSz = Math.round(28 + gf * 22);
-          ctx.font = `400 ${nSz}px Inter, system-ui, sans-serif`;
-          ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-          ctx.shadowColor = `rgba(150,120,255,${gf * 0.5})`; ctx.shadowBlur = gf * 20;
-          ctx.fillStyle = `rgba(210,200,255,${0.4 + gf * 0.35})`;
-          ctx.fillText(nLine.text, W / 2, H - 86);
+          ctx.beginPath(); ctx.rect(0, 0, lp * W, H); ctx.clip();
+          ctx.shadowColor = styleColors.glow; ctx.shadowBlur = 30;
+          ctx.fillStyle = styleColors.fill;
+          ctx.fillText(cLine.text, W / 2, textY);
+          ctx.restore();
+        } else if (effect === "fade") {
+          ctx.globalAlpha = Math.max(0, 1 - wp);
+          ctx.shadowColor = styleColors.glow; ctx.shadowBlur = 28;
+          ctx.fillStyle = styleColors.fill;
+          ctx.fillText(cLine.text, W / 2, textY);
+        } else if (effect === "blur") {
+          const blurPx = (wp * 14).toFixed(1);
+          ctx.filter = `blur(${blurPx}px)`;
+          ctx.globalAlpha = Math.max(0, 1 - wp * 0.85);
+          ctx.shadowColor = styleColors.glow; ctx.shadowBlur = 28;
+          ctx.fillStyle = styleColors.fill;
+          ctx.fillText(cLine.text, W / 2, textY);
+          ctx.filter = "none";
+        } else {
+          // wipe (default): clip remaining right portion, hold 1.5 s first
+          ctx.save();
+          ctx.beginPath(); ctx.rect(wp * W, 0, W * (1 - wp), H); ctx.clip();
+          ctx.shadowColor = styleColors.glow; ctx.shadowBlur = 28;
+          ctx.fillStyle = styleColors.fill;
+          ctx.fillText(cLine.text, W / 2, textY);
           ctx.restore();
         }
 
-        // Current line — wipe left to right
-        ctx.save();
-        ctx.beginPath(); ctx.rect(lp * W, 0, W * (1 - lp), H); ctx.clip();
-        ctx.font = "bold 52px Inter, system-ui, sans-serif";
-        ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-        ctx.strokeStyle = "rgba(0,0,0,0.6)"; ctx.lineWidth = 4;
-        ctx.strokeText(cLine.text, W / 2, H - 28);
-        ctx.shadowColor = "rgba(150,100,255,0.8)"; ctx.shadowBlur = 32;
-        ctx.fillStyle = "#F2EEFF";
-        ctx.fillText(cLine.text, W / 2, H - 28);
         ctx.restore();
       }
 
@@ -936,6 +996,9 @@ export default function App() {
                         /* ── Display mode ── */
                         <>
                           <span className="flex-1 truncate">{line.text}</span>
+                          <span className="font-mono text-white/20 shrink-0 tabular-nums text-[10px]">
+                            {(line.end - line.start).toFixed(1)}s
+                          </span>
                           <button
                             onClick={() => startEditLine(i)}
                             className="shrink-0 opacity-0 group-hover:opacity-100 text-white/30 hover:text-violet-400 transition-all"
@@ -943,9 +1006,15 @@ export default function App() {
                           >
                             <Pencil className="w-3 h-3" />
                           </button>
-                          <span className="font-mono text-white/20 shrink-0 tabular-nums text-[10px]">
-                            {(line.end - line.start).toFixed(1)}s
-                          </span>
+                          {line.text.trim().split(/\s+/).length >= 2 && (
+                            <button
+                              onClick={() => splitLine(i)}
+                              className="shrink-0 opacity-0 group-hover:opacity-100 text-white/30 hover:text-amber-400 transition-all"
+                              title="Cắt đôi dòng này"
+                            >
+                              <Scissors className="w-3 h-3" />
+                            </button>
+                          )}
                         </>
                       )}
                     </div>
