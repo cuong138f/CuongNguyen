@@ -15,8 +15,11 @@ function formatTime(s: number) {
 }
 
 /**
- * Analyze audio file and return N-1 best cut points (in seconds)
- * by finding the most prominent energy dips in the signal.
+ * Analyze audio file and return N best cut points (in seconds):
+ *   cuts[0]       = intro end   → first lyric starts here
+ *   cuts[1..N-1]  = inter-lyric boundaries
+ *
+ * This ensures lyrics never appear before the intro ends.
  */
 async function findBestCutPoints(file: File, numCuts: number): Promise<number[]> {
   if (numCuts <= 0) return [];
@@ -62,13 +65,13 @@ async function findBestCutPoints(file: File, numCuts: number): Promise<number[]>
     smoothed[f] = runSum / smoothWin;
   }
 
-  // 3. Find local minima (avoid first/last 5% of audio)
-  const guardFrames = Math.floor(frames * 0.05);
+  // 3. Find local minima — no guard at the start so we can detect the intro end
+  //    (allow from frame 1 so even an early dip counts as intro boundary)
   const contextFrames = Math.max(3, Math.round(400 / hopMs)); // 400ms context
+  const endGuard = Math.floor(frames * 0.03);
 
   const minima: { frame: number; score: number }[] = [];
-  for (let f = guardFrames + contextFrames; f < frames - guardFrames - contextFrames; f++) {
-    // Is it a local minimum within ±contextFrames?
+  for (let f = contextFrames; f < frames - endGuard - contextFrames; f++) {
     let isMin = true;
     for (let d = 1; d <= contextFrames; d++) {
       if (smoothed[f] > smoothed[f - d] || smoothed[f] > smoothed[f + d]) {
@@ -78,19 +81,34 @@ async function findBestCutPoints(file: File, numCuts: number): Promise<number[]>
     }
     if (!isMin) continue;
 
-    // Score = depth of dip relative to surrounding peaks
     const leftPeak = Math.max(...Array.from(smoothed.slice(Math.max(0, f - contextFrames * 3), f)));
     const rightPeak = Math.max(...Array.from(smoothed.slice(f + 1, Math.min(frames, f + contextFrames * 3 + 1))));
     const surroundPeak = Math.max(leftPeak, rightPeak);
     if (surroundPeak === 0) continue;
 
     const score = 1 - smoothed[f] / surroundPeak;
-    if (score > 0.05) {
-      minima.push({ frame: f, score });
+    if (score > 0.05) minima.push({ frame: f, score });
+  }
+
+  // 4. Also detect the audio onset — the first frame where sustained energy rises
+  //    above the noise floor. This anchors the intro-end search.
+  const sorted10 = Array.from(smoothed).sort((a, b) => a - b);
+  const noiseFloor = sorted10[Math.floor(frames * 0.1)];
+  const maxE = sorted10[frames - 1];
+  const onsetThresh = noiseFloor + (maxE - noiseFloor) * 0.15;
+  const sustainFrames = Math.round(400 / hopMs);
+  let audioOnsetFrame = 0;
+  for (let f = 0; f < frames - sustainFrames; f++) {
+    if (smoothed[f] >= onsetThresh) {
+      let ok = true;
+      for (let d = 1; d < sustainFrames; d++) {
+        if (smoothed[f + d] < onsetThresh * 0.4) { ok = false; break; }
+      }
+      if (ok) { audioOnsetFrame = f; break; }
     }
   }
 
-  // 4. Cluster-aware selection: avoid picking cuts that are too close together
+  // 5. Cluster-aware selection
   minima.sort((a, b) => b.score - a.score);
   const minGapFrames = Math.round(1000 / hopMs); // min 1s between cuts
 
@@ -101,7 +119,7 @@ async function findBestCutPoints(file: File, numCuts: number): Promise<number[]>
     if (!tooClose) selected.push(m);
   }
 
-  // 5. If we still don't have enough cuts, fill with evenly spaced cuts
+  // 6. Fill missing cuts with even spacing
   if (selected.length < numCuts) {
     const evenStep = totalDuration / (numCuts + 1);
     for (let i = 1; selected.length < numCuts; i++) {
@@ -115,7 +133,18 @@ async function findBestCutPoints(file: File, numCuts: number): Promise<number[]>
   }
 
   selected.sort((a, b) => a.frame - b.frame);
-  return selected.map((s) => (s.frame / frames) * totalDuration);
+  const times = selected.map((s) => (s.frame / frames) * totalDuration);
+
+  // 7. Ensure cuts[0] (intro end) is at or after the audio onset.
+  //    If the first detected cut is before the onset, replace it with the onset time.
+  const onsetTime = (audioOnsetFrame / frames) * totalDuration;
+  if (times.length > 0 && times[0] < onsetTime) {
+    times[0] = onsetTime;
+    // Re-sort in case this pushed it past times[1]
+    times.sort((a, b) => a - b);
+  }
+
+  return times;
 }
 
 export default function App() {
@@ -224,8 +253,10 @@ export default function App() {
     setLyricsLines([]);
 
     try {
-      const cuts = await findBestCutPoints(audioFile, lines.length - 1);
-      const boundaries = [0, ...cuts, duration];
+      // Request `lines.length` cuts: cuts[0] = intro end, cuts[1..] = inter-lyric
+      const cuts = await findBestCutPoints(audioFile, lines.length);
+      // boundaries: [introEnd, cut1, cut2, ..., totalDuration]
+      const boundaries = [...cuts, duration];
 
       setLyricsLines(
         lines.map((text, i) => ({
@@ -236,13 +267,14 @@ export default function App() {
       );
       setCurrentLineIndex(-1);
     } catch {
-      // Fallback: even distribution
-      const step = duration / lines.length;
+      // Fallback: skip first quarter as intro, distribute rest evenly
+      const introEnd = duration * 0.1;
+      const step = (duration - introEnd) / lines.length;
       setLyricsLines(
         lines.map((text, i) => ({
           text,
-          start: i * step,
-          end: (i + 1) * step,
+          start: introEnd + i * step,
+          end: introEnd + (i + 1) * step,
         }))
       );
     } finally {
@@ -442,37 +474,61 @@ export default function App() {
                 className="absolute inset-0 flex flex-col items-center justify-center overflow-hidden px-10 py-10"
               >
                 {lyricsLines.length > 0 ? (
-                  <div className="w-full flex flex-col items-center gap-2 text-center">
-                    {lyricsLines.map((line, i) => {
-                      const isCurrent = i === currentLineIndex;
-                      const isPast = i < currentLineIndex;
-                      const distance = Math.abs(i - Math.max(0, currentLineIndex));
-                      if (distance > windowSize) return null;
+                  currentLineIndex >= 0 ? (
+                    /* ── Active lyrics window ── */
+                    <div className="w-full flex flex-col items-center gap-2 text-center">
+                      {lyricsLines.map((line, i) => {
+                        const isCurrent = i === currentLineIndex;
+                        const isPast = i < currentLineIndex;
+                        const distance = Math.abs(i - currentLineIndex);
+                        if (distance > windowSize) return null;
 
-                      return (
-                        <p
-                          key={i}
-                          data-line={i}
-                          className="lyric-line leading-tight"
-                          style={{
-                            fontSize: isCurrent ? "clamp(1.1rem, 2.8vw, 1.6rem)" : "clamp(0.75rem, 1.8vw, 1rem)",
-                            fontWeight: isCurrent ? 700 : 400,
-                            opacity: isCurrent ? 1 : isPast ? 0.18 : Math.max(0.12, 0.45 - distance * 0.08),
-                            color: "#ffffff",
-                            textShadow: isCurrent
-                              ? "0 0 40px rgba(168,85,247,0.7), 0 2px 12px rgba(0,0,0,0.9)"
-                              : "0 1px 6px rgba(0,0,0,0.7)",
-                            transform: isCurrent ? "scale(1.04)" : "scale(1)",
-                            letterSpacing: isCurrent ? "0.01em" : "0",
-                            maxWidth: "90%",
-                            margin: "0 auto",
-                          }}
-                        >
-                          {line.text}
+                        return (
+                          <p
+                            key={i}
+                            data-line={i}
+                            className="lyric-line leading-tight"
+                            style={{
+                              fontSize: isCurrent ? "clamp(1.1rem, 2.8vw, 1.6rem)" : "clamp(0.75rem, 1.8vw, 1rem)",
+                              fontWeight: isCurrent ? 700 : 400,
+                              opacity: isCurrent ? 1 : isPast ? 0.18 : Math.max(0.12, 0.45 - distance * 0.08),
+                              color: "#ffffff",
+                              textShadow: isCurrent
+                                ? "0 0 40px rgba(168,85,247,0.7), 0 2px 12px rgba(0,0,0,0.9)"
+                                : "0 1px 6px rgba(0,0,0,0.7)",
+                              transform: isCurrent ? "scale(1.04)" : "scale(1)",
+                              letterSpacing: isCurrent ? "0.01em" : "0",
+                              maxWidth: "90%",
+                              margin: "0 auto",
+                            }}
+                          >
+                            {line.text}
+                          </p>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    /* ── Intro: timeline set but not reached first lyric yet ── */
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="flex gap-1.5 items-end h-6">
+                        {[0, 1, 2, 3, 4].map((i) => (
+                          <span
+                            key={i}
+                            className="w-1 rounded-full bg-white/20"
+                            style={{
+                              height: `${40 + Math.sin(i * 1.3) * 30}%`,
+                              animation: isPlaying ? `bounce 0.8s ease-in-out ${i * 0.12}s infinite alternate` : "none",
+                            }}
+                          />
+                        ))}
+                      </div>
+                      {lyricsLines[0] && (
+                        <p className="text-[11px] text-white/25 font-mono">
+                          lời bắt đầu lúc {formatTime(lyricsLines[0].start)}
                         </p>
-                      );
-                    })}
-                  </div>
+                      )}
+                    </div>
+                  )
                 ) : (
                   !isAnalyzing && (
                     <div className="text-center space-y-3">

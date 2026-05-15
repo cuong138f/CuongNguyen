@@ -56,3 +56,9 @@
 .lyric-line {
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+/* Intro music bars animation */
+@keyframes bounce {
+  from { transform: scaleY(0.4); opacity: 0.15; }
+  to   { transform: scaleY(1);   opacity: 0.35; }
+}
