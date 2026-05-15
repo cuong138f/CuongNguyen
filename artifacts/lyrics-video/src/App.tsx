@@ -1103,7 +1103,8 @@ export default function App() {
                     Gemini tự nghe và trả về lời + timestamp
                   </p>
                 )}
-                {audioFile && transcribeFromCache && (
+                {/* Show "Nhận diện lại" whenever audio is loaded — not just after a cache hit */}
+                {audioFile && (lyricsLines.length > 0 || transcribeFromCache) && (
                   <button
                     onClick={() => handleAiTranscribe(true)}
                     disabled={isTranscribing || isSyncing}

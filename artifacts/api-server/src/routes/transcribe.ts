@@ -7,43 +7,62 @@ import { randomUUID } from "node:crypto";
 
 const router = Router();
 
+// Gemini performs best with these canonical MIME types for audio
+function normalizeMimeType(raw: string): { mimeType: string; ext: string } {
+  const lower = raw.toLowerCase();
+  if (lower.includes("mpeg") || lower.includes("mp3")) return { mimeType: "audio/mp3", ext: "mp3" };
+  if (lower.includes("mp4") || lower.includes("m4a") || lower.includes("aac")) return { mimeType: "audio/mp4", ext: "mp4" };
+  if (lower.includes("ogg")) return { mimeType: "audio/ogg", ext: "ogg" };
+  if (lower.includes("wav") || lower.includes("wave")) return { mimeType: "audio/wav", ext: "wav" };
+  if (lower.includes("flac")) return { mimeType: "audio/flac", ext: "flac" };
+  // webm or unknown → treat as mp3 (most common upload format)
+  return { mimeType: "audio/mp3", ext: "mp3" };
+}
+
 const PROMPT = `
-You are a music lyrics transcription assistant.
-Listen to this audio carefully and transcribe ALL lyrics with precise timestamps.
-Return ONLY a JSON array — no markdown, no explanation, no code block.
+You are an expert music lyrics transcription assistant. Your task is to listen to the ENTIRE audio file from beginning to end and produce a precise, complete timestamped transcript of ALL sung lyrics.
 
-Each element must have:
-- "text": the exact lyric line as sung (string)
-- "start": time in seconds when the singer BEGINS this line (number, 1 decimal place)
-- "end": time in seconds when the singer's voice STOPS on the LAST SYLLABLE of this line (number, 1 decimal place)
+RETURN FORMAT: A JSON array only — no markdown, no code blocks, no comments, no explanations.
+Each object: { "text": "<lyric line>", "start": <seconds>, "end": <seconds> }
+- "start": exact second when the singer's voice begins this line
+- "end": exact second when the singer's voice stops on the last syllable (NOT when the next line starts)
+- Times must be numbers with 1 decimal place precision
 
-Critical timing rules — read carefully:
-1. "end" = when the VOICE STOPS, NOT when the next line begins.
-   If there is a musical gap or silence after a line, do NOT extend "end" into that gap.
-2. Each line's duration (end − start) should be 1.5 – 8 seconds. Most sung lines are 2–5 s.
-   Never assign a duration > 10 seconds to a single line unless it contains an extremely long held note.
-3. Include EVERY lyric line, including repeated chorus/hook lines.
-4. Skip instrumental-only sections (intro, breaks, outros) — do not emit empty lines.
-5. If the audio has no vocals at all, return: []
+CRITICAL RULES — follow every one strictly:
 
-Example (notice the gap between lines is NOT part of either line's duration):
-[
-  {"text":"First line of lyrics","start":5.2,"end":8.1},
-  {"text":"Second line","start":11.0,"end":14.3}
-]
-In that example the first line ends at 8.1 s even though the next line doesn't start until 11.0 s.
+1. SCAN THE ENTIRE AUDIO: Start at 0:00 and work forward to the very last second. Do NOT stop early, do NOT skip the middle or end of the song.
+
+2. EVERY VOCAL LINE MUST BE INCLUDED: Include verse lines, chorus lines, bridge lines, hooks, ad-libs, background harmonies if they carry distinct lyrics. Missing ANY sung line is an error.
+
+3. REPEATED SECTIONS (chorus/hook): If the same lyrics are sung again later in the song (e.g. the chorus repeats at 1:30, 2:45, and 3:10), you MUST include ALL occurrences as separate entries with their real individual timestamps. Never copy-paste the same timestamps — each occurrence has its own unique start/end.
+
+4. "end" = voice stop, NOT next-line start: If a singer holds a note and stops at 3.8s but the next line begins at 6.0s, "end" = 3.8, not 6.0. Each line's duration (end − start) is typically 1.5–7 seconds.
+
+5. NEVER exceed 10 seconds duration for a single line. Long held notes are still ≤10 s. If a line would be longer, split it at a natural breath point.
+
+6. SKIP ONLY TRUE INSTRUMENTALS: Skip intro/outro/solo/break sections with ZERO vocals. Do NOT skip a section just because you are unsure — transcribe your best estimate.
+
+7. DO NOT INVENT LYRICS: Transcribe what is actually sung. If a word is unclear, write your best phonetic approximation. Do not leave lines empty.
+
+8. TIMESTAMPS MUST INCREASE MONOTONICALLY: Each line's start must be strictly greater than the previous line's end. No overlaps.
+
+9. DO NOT TRUNCATE: Many songs have 30–60+ lyric lines. Output ALL of them. Do not stop after 20–30 lines if the song continues.
+
+Verify your work: before outputting, confirm that your last entry's "start" time is near the end of the audio (within the last 60 seconds), and that your count of lines is plausible for a typical song of that length.
+
+Output the JSON array now:
 `.trim();
 
-// Gemini inline data limit: ~4 MB for audio (files longer than ~2m20s must use File API)
-const INLINE_LIMIT_BYTES = 4 * 1024 * 1024;
+// Files ≤ this size can be sent inline (Gemini inlineData limit)
+const INLINE_LIMIT_BYTES = 4 * 1024 * 1024; // 4 MB
 
 router.post("/transcribe-audio", async (req, res) => {
-  const { audioBase64, mimeType } = req.body as {
+  const { audioBase64, mimeType: rawMimeType } = req.body as {
     audioBase64?: string;
     mimeType?: string;
   };
 
-  if (!audioBase64 || !mimeType) {
+  if (!audioBase64 || !rawMimeType) {
     res.status(400).json({ error: "audioBase64 and mimeType are required" });
     return;
   }
@@ -54,39 +73,33 @@ router.post("/transcribe-audio", async (req, res) => {
     return;
   }
 
+  const { mimeType, ext } = normalizeMimeType(rawMimeType);
   const ai = new GoogleGenAI({ apiKey });
   const audioBuffer = Buffer.from(audioBase64, "base64");
 
-  let lines: { text: string; start: number; end: number }[];
+  req.log.info({ rawMimeType, mimeType, bytes: audioBuffer.byteLength }, "Starting transcription");
+
+  let rawText = "";
 
   try {
     if (audioBuffer.byteLength <= INLINE_LIMIT_BYTES) {
-      // ── Small file: send as inline base64 ───────────────────────────
-      req.log.info({ bytes: audioBuffer.byteLength }, "Transcribing via inline data");
-
+      // ── Small file: inline base64 ──────────────────────────────────
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
-        contents: [
-          {
-            parts: [
-              { inlineData: { mimeType, data: audioBase64 } },
-              { text: PROMPT },
-            ],
-          },
-        ],
+        contents: [{
+          parts: [
+            { inlineData: { mimeType, data: audioBase64 } },
+            { text: PROMPT },
+          ],
+        }],
+        config: { temperature: 0 },
       });
+      rawText = response.text?.trim() ?? "";
 
-      lines = parseGeminiResponse(response.text?.trim() ?? "");
     } else {
-      // ── Large file: upload via File API, reference by URI ────────────
-      const ext = mimeType.split("/")[1]?.replace("mpeg", "mp3") ?? "mp3";
+      // ── Large file: Gemini File API ─────────────────────────────────
       const tmpPath = join(tmpdir(), `lv_audio_${randomUUID()}.${ext}`);
-
-      req.log.info(
-        { bytes: audioBuffer.byteLength, tmpPath },
-        "Transcribing via Gemini File API — uploading"
-      );
-
+      req.log.info({ tmpPath }, "Writing tmp file for File API upload");
       await writeFile(tmpPath, audioBuffer);
 
       let uploadedFile: { name: string; uri: string; state?: string };
@@ -99,7 +112,7 @@ router.post("/transcribe-audio", async (req, res) => {
         await unlink(tmpPath).catch(() => {});
       }
 
-      // Poll until ACTIVE (usually instant for audio < 200 MB)
+      // Poll until ACTIVE
       let fileInfo = await ai.files.get({ name: uploadedFile.name }) as { name: string; uri: string; state?: string };
       let polls = 0;
       while (fileInfo.state === "PROCESSING" && polls < 30) {
@@ -110,28 +123,26 @@ router.post("/transcribe-audio", async (req, res) => {
 
       if (fileInfo.state !== "ACTIVE") {
         await ai.files.delete({ name: fileInfo.name }).catch(() => {});
-        res.status(502).json({ error: "File upload to AI timed out or failed" });
+        res.status(502).json({ error: "File upload to AI timed out" });
         return;
       }
 
-      req.log.info({ uri: fileInfo.uri }, "File ACTIVE — generating content");
+      req.log.info({ uri: fileInfo.uri, polls }, "File ACTIVE — generating content");
 
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
-        contents: [
-          {
-            parts: [
-              { fileData: { fileUri: fileInfo.uri, mimeType } },
-              { text: PROMPT },
-            ],
-          },
-        ],
+        contents: [{
+          parts: [
+            { fileData: { fileUri: fileInfo.uri, mimeType } },
+            { text: PROMPT },
+          ],
+        }],
+        config: { temperature: 0 },
       });
 
-      // Clean up uploaded file (best-effort)
+      // Clean up (best-effort, non-blocking)
       ai.files.delete({ name: fileInfo.name }).catch(() => {});
-
-      lines = parseGeminiResponse(response.text?.trim() ?? "");
+      rawText = response.text?.trim() ?? "";
     }
   } catch (err) {
     req.log.error({ err }, "Gemini transcription failed");
@@ -139,29 +150,41 @@ router.post("/transcribe-audio", async (req, res) => {
     return;
   }
 
-  // Sort by start time (defensive)
+  // Parse response
+  let lines: { text: string; start: number; end: number }[];
+  try {
+    lines = parseGeminiResponse(rawText);
+  } catch {
+    req.log.warn({ rawText: rawText.slice(0, 500) }, "Gemini response was not valid JSON");
+    res.status(502).json({ error: "AI returned an unexpected format", raw: rawText.slice(0, 500) });
+    return;
+  }
+
+  if (!lines.length) {
+    res.json({ lines: [] });
+    return;
+  }
+
+  // Sort by start time
   lines.sort((a, b) => a.start - b.start);
 
-  // Sanity-cap each line's duration
+  // Sanity-cap lines whose duration is suspiciously long
   const MAX_NATURAL_DURATION = 10;
   const CHARS_PER_SECOND = 7;
-
   lines = lines.map((line, i) => {
-    const duration = line.end - line.start;
-    if (duration <= MAX_NATURAL_DURATION) return line;
+    const dur = line.end - line.start;
+    if (dur <= MAX_NATURAL_DURATION) return line;
 
     const estimated = Math.max(2.0, Math.min(8.0, line.text.length / CHARS_PER_SECOND));
     const nextStart = lines[i + 1]?.start ?? Infinity;
     const gapBased = nextStart - line.start;
     const cappedEnd = line.start + Math.min(estimated, gapBased > 0 ? Math.min(gapBased, estimated) : estimated);
 
-    req.log.warn(
-      { line: line.text, originalEnd: line.end, cappedEnd },
-      "Capped suspiciously long lyric line duration"
-    );
+    req.log.warn({ line: line.text, originalEnd: line.end, cappedEnd }, "Capped suspiciously long duration");
     return { ...line, end: Math.round(cappedEnd * 10) / 10 };
   });
 
+  req.log.info({ lineCount: lines.length, lastStart: lines[lines.length - 1]?.start }, "Transcription complete");
   res.json({ lines });
 });
 
@@ -170,7 +193,6 @@ function parseGeminiResponse(rawText: string): { text: string; start: number; en
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/, "")
     .trim();
-
   const parsed = JSON.parse(jsonText);
   if (!Array.isArray(parsed)) throw new Error("Not an array");
   return parsed as { text: string; start: number; end: number }[];
