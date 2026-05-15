@@ -26,6 +26,7 @@ function drawLyricFrame(
   styleColors: { fill: string; glow: string },
   effect: string,
   fontSizePct: number,
+  prerollSec = 0,
 ) {
   const WIPE_HOLD = 1.5;
   ctx.clearRect(0, 0, W, H);
@@ -49,15 +50,20 @@ function drawLyricFrame(
   ov.addColorStop(0, "rgba(0,0,0,0)"); ov.addColorStop(1, "rgba(0,0,0,0.9)");
   ctx.fillStyle = ov; ctx.fillRect(0, 0, W, H);
 
-  // ── Find active line ─────────────────────────────────────────
+  // ── Find active line (with optional pre-roll look-ahead) ─────
+  const lookAhead = time + prerollSec;
   let curIdx = -1;
   for (let i = 0; i < lines.length; i++) {
-    if (time >= lines[i].start && time < lines[i].end) { curIdx = i; break; }
+    if (lookAhead >= lines[i].start) {
+      curIdx = i;
+      if (lookAhead < lines[i].end) break;
+    }
   }
   if (curIdx < 0) return;
 
   const cLine = lines[curIdx];
   const lineDur = Math.max(0.001, cLine.end - cLine.start);
+  // lineElapsed is always from actual start — so during pre-roll period lp = 0 (dim/static)
   const lineElapsed = Math.max(0, time - cLine.start);
   const lp = Math.min(1, lineElapsed / lineDur);
   const wp = lineDur > WIPE_HOLD
@@ -399,6 +405,10 @@ export default function App() {
     const saved = parseInt(localStorage.getItem("lv_lyricFontSize") ?? "", 10);
     return isNaN(saved) ? 100 : Math.min(180, Math.max(60, saved));
   });
+  const [prerollSeconds, setPrerollSeconds] = useState<number>(() => {
+    const saved = parseFloat(localStorage.getItem("lv_prerollSeconds") ?? "");
+    return isNaN(saved) ? 1.0 : Math.min(3, Math.max(0, saved));
+  });
 
   const waveformRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
@@ -451,17 +461,18 @@ export default function App() {
   useEffect(() => {
     if (!lyricsLines.length) return;
 
-    // Find the active line — during gaps, hold the PREVIOUS line so the wipe stays
-    // fully complete and the preview (next line) remains visible above.
+    // Find the active line with pre-roll look-ahead.
+    // During gaps, holds the PREVIOUS line so the wipe stays fully complete.
+    const lookAhead = currentTime + prerollSeconds;
     let idx = -1;
     for (let i = 0; i < lyricsLines.length; i++) {
-      if (currentTime >= lyricsLines[i].start) {
-        idx = i; // last line whose start has passed
-        if (currentTime < lyricsLines[i].end) break; // exact active match — stop
+      if (lookAhead >= lyricsLines[i].start) {
+        idx = i; // last line whose pre-roll window has opened
+        if (lookAhead < lyricsLines[i].end) break; // exact match — stop
       }
     }
     setCurrentLineIndex(idx);
-  }, [currentTime, lyricsLines]);
+  }, [currentTime, lyricsLines, prerollSeconds]);
 
   useEffect(() => {
     if (!lyricsViewRef.current || currentLineIndex < 0) return;
@@ -475,6 +486,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem("lv_lyricEffect", lyricEffect); }, [lyricEffect]);
   useEffect(() => { localStorage.setItem("lv_lyricStyleId", lyricStyleId); }, [lyricStyleId]);
   useEffect(() => { localStorage.setItem("lv_lyricFontSize", String(lyricFontSize)); }, [lyricFontSize]);
+  useEffect(() => { localStorage.setItem("lv_prerollSeconds", String(prerollSeconds)); }, [prerollSeconds]);
 
   const handleCoverUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -771,12 +783,13 @@ export default function App() {
     wavesurferRef.current.once("finish", stop);
 
     const fontPct = lyricFontSize;
+    const preroll = prerollSeconds;
     const drawFrame = () => {
       const ws = wavesurferRef.current;
       if (!ws || stopped) return;
       const time = ws.getCurrentTime();
       if (totalDur > 0) setExportProgress(Math.min(1, time / totalDur));
-      drawLyricFrame(ctx, W, H, time, lines, coverImg, styleColors, effect, fontPct);
+      drawLyricFrame(ctx, W, H, time, lines, coverImg, styleColors, effect, fontPct, preroll);
       if (!stopped) animId = requestAnimationFrame(drawFrame);
     };
     animId = requestAnimationFrame(drawFrame);
@@ -801,6 +814,7 @@ export default function App() {
     const styleColors = CANVAS_COLORS[lyricStyleId] ?? CANVAS_COLORS.purple;
     const effect = lyricEffect;
     const fontPct = lyricFontSize;
+    const preroll = prerollSeconds;
     const lines = lyricsLines;
     const totalDur = duration || (lines.length > 0 ? lines[lines.length - 1].end + 2 : 60);
     const totalFrames = Math.ceil(totalDur * FPS);
@@ -867,7 +881,7 @@ export default function App() {
 
     // Render all video frames offline (fast, no real-time dependency)
     for (let fi = 0; fi < totalFrames; fi++) {
-      drawLyricFrame(ctx, W, H, fi / FPS, lines, coverImg, styleColors, effect, fontPct);
+      drawLyricFrame(ctx, W, H, fi / FPS, lines, coverImg, styleColors, effect, fontPct, preroll);
       const vf = new VideoFrame(canvas, { timestamp: Math.round(fi / FPS * 1_000_000), duration: Math.round(1_000_000 / FPS) });
       videoEncoder.encode(vf, { keyFrame: fi % 90 === 0 });
       vf.close();
@@ -1220,6 +1234,34 @@ export default function App() {
               <div className="flex justify-between text-[9px] text-white/20 mt-1">
                 <span>60%</span><span>100%</span><span>180%</span>
               </div>
+            </section>
+
+            {/* Pre-roll slider */}
+            <section>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-white/30">
+                  Hiện trước
+                </p>
+                <span className="text-[10px] font-mono text-amber-400/70">
+                  {prerollSeconds === 0 ? "tắt" : `${prerollSeconds.toFixed(1)}s`}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={3}
+                step={0.1}
+                value={prerollSeconds}
+                onChange={(e) => setPrerollSeconds(Number(e.target.value))}
+                className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+                style={{ accentColor: "#F59E0B" }}
+              />
+              <div className="flex justify-between text-[9px] text-white/20 mt-1">
+                <span>tắt</span><span>1s</span><span>2s</span><span>3s</span>
+              </div>
+              <p className="text-[9px] text-white/20 mt-1.5 leading-relaxed">
+                Câu hát xuất hiện sớm hơn để người xem chuẩn bị
+              </p>
             </section>
 
             {/* Timeline list */}
