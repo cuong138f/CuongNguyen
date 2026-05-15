@@ -1647,8 +1647,8 @@ export default function App() {
               >
                 {lyricsLines.length > 0 ? (
                   currentLineIndex >= 0 ? (
-                    /* Current line — one motion.div, effect applied via animate + style */
-                    <div className="absolute inset-0 flex flex-col justify-end items-center pb-10">
+                    /* Current line — absolutely positioned so enter/exit animations never shift layout */
+                    <div className="absolute inset-0">
                       <AnimatePresence mode="sync">
                         <motion.div
                           key={`cur-${currentLineIndex}`}
@@ -1661,7 +1661,10 @@ export default function App() {
                             opacity: { duration: 0.08 },
                           }}
                           style={{
-                            maxWidth: "90%",
+                            position: "absolute",
+                            bottom: "2.5rem",
+                            left: "2rem",
+                            right: "2rem",
                             ...(effectFilter && { filter: effectFilter }),
                           }}
                         >
