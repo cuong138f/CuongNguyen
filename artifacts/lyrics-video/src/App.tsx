@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import WaveSurfer from "wavesurfer.js";
 import { Music, Image, Play, Pause, Wand2, SkipBack, Upload, Loader2, Sparkles, Pencil, Check, X, Download } from "lucide-react";
 
@@ -217,9 +218,15 @@ export default function App() {
 
   useEffect(() => {
     if (!lyricsLines.length) return;
+
+    // Find the active line — during gaps, hold the PREVIOUS line so the wipe stays
+    // fully complete and the preview (next line) remains visible above.
     let idx = -1;
     for (let i = 0; i < lyricsLines.length; i++) {
-      if (currentTime >= lyricsLines[i].start) idx = i;
+      if (currentTime >= lyricsLines[i].start) {
+        idx = i; // last line whose start has passed
+        if (currentTime < lyricsLines[i].end) break; // exact active match — stop
+      }
     }
     setCurrentLineIndex(idx);
   }, [currentTime, lyricsLines]);
@@ -814,49 +821,65 @@ export default function App() {
               >
                 {lyricsLines.length > 0 ? (
                   currentLineIndex >= 0 ? (
-                    /* ── 2-line display: next (above, grows) + current (bottom, fly-up + wipe) ── */
+                    /* ── 2-line display: next (above, grows) + current (slides in from above) ── */
                     <>
-                      {/* Next line — no key, stays mounted; size/color driven by growFactor */}
-                      {nextLine && (
-                        <p
-                          className="text-center"
-                          style={{
-                            fontSize: `clamp(${0.82 + growFactor * 0.45}rem, ${2 + growFactor * 1.2}vw, ${1.15 + growFactor * 0.72}rem)`,
-                            fontWeight: growFactor > 0.6 ? 600 : 400,
-                            color: `rgba(210,198,255,${0.38 + growFactor * 0.37})`,
-                            textShadow: `0 1px 10px rgba(0,0,0,0.85), 0 0 ${Math.round(growFactor * 28)}px rgba(150,110,255,${(growFactor * 0.55).toFixed(2)})`,
-                            maxWidth: "82%",
-                            lineHeight: 1.4,
-                          }}
-                        >
-                          {nextLine.text}
-                        </p>
-                      )}
+                      {/* Next line — fades/grows in; size driven live by growFactor */}
+                      <AnimatePresence mode="popLayout">
+                        {nextLine && (
+                          <motion.p
+                            key={`next-${currentLineIndex}`}
+                            className="text-center"
+                            initial={{ opacity: 0, y: -12 }}
+                            animate={{
+                              opacity: 0.38 + growFactor * 0.37,
+                              y: 0,
+                              fontSize: `clamp(${0.82 + growFactor * 0.45}rem, ${2 + growFactor * 1.2}vw, ${1.15 + growFactor * 0.72}rem)`,
+                            }}
+                            exit={{ opacity: 0, y: -8, transition: { duration: 0.15 } }}
+                            transition={{ type: "spring", stiffness: 260, damping: 28 }}
+                            style={{
+                              fontWeight: growFactor > 0.6 ? 600 : 400,
+                              color: `rgba(210,198,255,1)`,
+                              textShadow: `0 1px 10px rgba(0,0,0,0.85), 0 0 ${Math.round(growFactor * 28)}px rgba(150,110,255,${(growFactor * 0.55).toFixed(2)})`,
+                              maxWidth: "82%",
+                              lineHeight: 1.4,
+                            }}
+                          >
+                            {nextLine.text}
+                          </motion.p>
+                        )}
+                      </AnimatePresence>
 
-                      {/* Current line — remounts on each new line (fly-up) + wipe mask */}
-                      <div
-                        key={`cur-${currentLineIndex}`}
-                        className="lyric-fly-current text-center"
-                        style={{
-                          maxWidth: "90%",
-                          WebkitMaskImage: wipeMask,
-                          maskImage: wipeMask,
-                        }}
-                      >
-                        <p
+                      {/* Current line — slides in FROM above (like the preview dropping down) + wipe mask */}
+                      <AnimatePresence mode="popLayout">
+                        <motion.div
+                          key={`cur-${currentLineIndex}`}
+                          className="text-center"
+                          initial={{ y: -52, scale: 0.82, opacity: 0.5 }}
+                          animate={{ y: 0, scale: 1, opacity: 1 }}
+                          exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.1 } }}
+                          transition={{ type: "spring", stiffness: 300, damping: 26 }}
                           style={{
-                            fontSize: "clamp(1.25rem, 3.3vw, 2.05rem)",
-                            fontWeight: 700,
-                            color: "#F2EEFF",
-                            textShadow:
-                              "0 2px 0 rgba(0,0,0,0.55), -1px -1px 0 rgba(0,0,0,0.4), 1px -1px 0 rgba(0,0,0,0.4), -1px 1px 0 rgba(0,0,0,0.4), 1px 1px 0 rgba(0,0,0,0.4), 0 0 35px rgba(150,110,255,0.75), 0 0 65px rgba(150,110,255,0.35)",
-                            letterSpacing: "0.015em",
-                            lineHeight: 1.3,
+                            maxWidth: "90%",
+                            WebkitMaskImage: wipeMask,
+                            maskImage: wipeMask,
                           }}
                         >
-                          {currentLine?.text}
-                        </p>
-                      </div>
+                          <p
+                            style={{
+                              fontSize: "clamp(1.25rem, 3.3vw, 2.05rem)",
+                              fontWeight: 700,
+                              color: "#F2EEFF",
+                              textShadow:
+                                "0 2px 0 rgba(0,0,0,0.55), -1px -1px 0 rgba(0,0,0,0.4), 1px -1px 0 rgba(0,0,0,0.4), -1px 1px 0 rgba(0,0,0,0.4), 1px 1px 0 rgba(0,0,0,0.4), 0 0 35px rgba(150,110,255,0.75), 0 0 65px rgba(150,110,255,0.35)",
+                              letterSpacing: "0.015em",
+                              lineHeight: 1.3,
+                            }}
+                          >
+                            {currentLine?.text}
+                          </p>
+                        </motion.div>
+                      </AnimatePresence>
                     </>
                   ) : (
                     /* ── Intro: timeline set but not reached first lyric yet ── */
