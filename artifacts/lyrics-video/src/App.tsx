@@ -646,8 +646,20 @@ export default function App() {
       ))
     : lineProgress;
   const wipePct   = (wipeProgress * 100).toFixed(2);
-  const edgePct   = Math.min(100, wipeProgress * 100 + 7).toFixed(2);
+  const edgePct   = Math.min(100, wipeProgress * 100 + 14).toFixed(2); // 14% soft edge
   const wipeMask  = `linear-gradient(to right, transparent ${wipePct}%, white ${edgePct}%)`;
+
+  // Per-effect opacity target (goes into Framer Motion animate so it wins)
+  const effectOpacity =
+    lyricEffect === "fade" ? Math.max(0, 1 - wipeProgress)
+    : lyricEffect === "blur" ? Math.max(0, 1 - wipeProgress * 0.85)
+    : 1;
+
+  // Per-effect CSS filter (safe in style — not in animate, so no conflict)
+  const effectFilter =
+    lyricEffect === "blur"
+      ? `blur(${(wipeProgress * 14).toFixed(1)}px) saturate(${Math.max(0, 1 - wipeProgress * 0.6).toFixed(2)})`
+      : undefined;
 
   // Next line grows from small/dim → big/bright during the last 28% of the current line
   const growFactor = Math.max(0, Math.min(1, (lineProgress - 0.72) / 0.28));
@@ -984,81 +996,72 @@ export default function App() {
               >
                 {lyricsLines.length > 0 ? (
                   currentLineIndex >= 0 ? (
-                    /* Current line — effect applied per lyricEffect setting */
+                    /* Current line — one motion.div, effect applied via animate + style */
                     <div className="absolute inset-0 flex flex-col justify-end items-center pb-10">
                       <AnimatePresence mode="sync">
-                        {lyricEffect === "karaoke" ? (
-                          /* Karaoke: dim base + bright clip sweeping left → right */
-                          <motion.div
-                            key={`cur-${currentLineIndex}`}
-                            className="text-center relative"
-                            initial={{ opacity: 0, scale: 0.96 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, transition: { duration: 0.18 } }}
-                            transition={{ type: "spring", stiffness: 340, damping: 30 }}
-                            style={{ maxWidth: "90%" }}
-                          >
-                            {/* dim/unsung layer */}
-                            <p style={{
-                              fontSize: "clamp(1.3rem, 3.4vw, 2.1rem)",
-                              fontWeight: 700,
-                              letterSpacing: "0.015em",
-                              lineHeight: 1.35,
-                              opacity: 0.35,
-                              ...activeStyle.current,
-                            }}>
-                              {currentLine?.text}
-                            </p>
-                            {/* bright/sung layer — clip from left by lineProgress */}
-                            <p style={{
-                              position: "absolute",
-                              inset: 0,
-                              fontSize: "clamp(1.3rem, 3.4vw, 2.1rem)",
-                              fontWeight: 700,
-                              letterSpacing: "0.015em",
-                              lineHeight: 1.35,
-                              clipPath: `inset(0 ${(100 - lineProgress * 100).toFixed(2)}% 0 0)`,
-                              ...activeStyle.current,
-                            }}>
-                              {currentLine?.text}
-                            </p>
-                          </motion.div>
-                        ) : (
-                          <motion.div
-                            key={`cur-${currentLineIndex}`}
-                            className="text-center"
-                            initial={{ opacity: 0, scale: 0.96 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, transition: { duration: 0.18 } }}
-                            transition={{ type: "spring", stiffness: 340, damping: 30 }}
-                            style={{
-                              maxWidth: "90%",
-                              ...(lyricEffect === "wipe" && {
-                                WebkitMaskImage: wipeMask,
-                                maskImage: wipeMask,
-                              }),
-                              ...(lyricEffect === "fade" && {
-                                opacity: Math.max(0, 1 - wipeProgress * 1.1),
-                              }),
-                              ...(lyricEffect === "blur" && {
-                                filter: `blur(${(wipeProgress * 10).toFixed(1)}px)`,
-                                opacity: Math.max(0, 1 - wipeProgress * 0.6),
-                              }),
-                            }}
-                          >
-                            <p
-                              style={{
+                        <motion.div
+                          key={`cur-${currentLineIndex}`}
+                          className="text-center"
+                          initial={{ opacity: 0, scale: 0.96 }}
+                          animate={{ opacity: effectOpacity, scale: 1 }}
+                          exit={{ opacity: 0, transition: { duration: 0.18 } }}
+                          transition={{
+                            scale: { type: "spring", stiffness: 340, damping: 30 },
+                            opacity: { duration: 0.08 },
+                          }}
+                          style={{
+                            maxWidth: "90%",
+                            ...(lyricEffect === "wipe" && {
+                              WebkitMaskImage: wipeMask,
+                              maskImage: wipeMask,
+                            }),
+                            ...(effectFilter && { filter: effectFilter }),
+                          }}
+                        >
+                          {lyricEffect === "karaoke" ? (
+                            /* Karaoke: dim base + bright clip that sweeps left → right */
+                            <div style={{ position: "relative" }}>
+                              {/* dim/unsung base */}
+                              <p style={{
                                 fontSize: "clamp(1.3rem, 3.4vw, 2.1rem)",
                                 fontWeight: 700,
                                 letterSpacing: "0.015em",
                                 lineHeight: 1.35,
+                                textAlign: "center",
+                                opacity: 0.3,
                                 ...activeStyle.current,
-                              }}
-                            >
+                              }}>
+                                {currentLine?.text}
+                              </p>
+                              {/* bright/sung layer — revealed left → right */}
+                              <p style={{
+                                position: "absolute",
+                                top: 0, left: 0, right: 0, bottom: 0,
+                                fontSize: "clamp(1.3rem, 3.4vw, 2.1rem)",
+                                fontWeight: 700,
+                                letterSpacing: "0.015em",
+                                lineHeight: 1.35,
+                                textAlign: "center",
+                                overflow: "hidden",
+                                WebkitMaskImage: `linear-gradient(to right, white ${(lineProgress * 100).toFixed(2)}%, transparent ${Math.min(100, lineProgress * 100 + 8).toFixed(2)}%)`,
+                                maskImage: `linear-gradient(to right, white ${(lineProgress * 100).toFixed(2)}%, transparent ${Math.min(100, lineProgress * 100 + 8).toFixed(2)}%)`,
+                                ...activeStyle.current,
+                              }}>
+                                {currentLine?.text}
+                              </p>
+                            </div>
+                          ) : (
+                            <p style={{
+                              fontSize: "clamp(1.3rem, 3.4vw, 2.1rem)",
+                              fontWeight: 700,
+                              letterSpacing: "0.015em",
+                              lineHeight: 1.35,
+                              ...activeStyle.current,
+                            }}>
                               {currentLine?.text}
                             </p>
-                          </motion.div>
-                        )}
+                          )}
+                        </motion.div>
                       </AnimatePresence>
                     </div>
                   ) : (
