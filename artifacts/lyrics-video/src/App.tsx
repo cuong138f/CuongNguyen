@@ -161,6 +161,7 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
+  const [transcribeFromCache, setTranscribeFromCache] = useState(false);
   const [editingLineIndex, setEditingLineIndex] = useState<number | null>(null);
   const [editingText, setEditingText] = useState("");
 
@@ -286,12 +287,35 @@ export default function App() {
     }
   };
 
-  const handleAiTranscribe = async () => {
+  const getAudioCacheKey = (file: File) =>
+    `lvg_transcribe_${file.name}_${file.size}_${file.lastModified}`;
+
+  const applyTranscribeResult = (lines: { text: string; start: number; end: number }[]) => {
+    setLyricsText(lines.map((l) => l.text).join("\n"));
+    setLyricsLines(lines);
+    setCurrentLineIndex(-1);
+  };
+
+  const handleAiTranscribe = async (forceRefresh = false) => {
     if (!audioFile) return;
     setIsTranscribing(true);
     setTranscribeError(null);
+    setTranscribeFromCache(false);
+
+    const cacheKey = getAudioCacheKey(audioFile);
 
     try {
+      // Check cache first (unless force refresh)
+      if (!forceRefresh) {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          const lines = JSON.parse(cached) as { text: string; start: number; end: number }[];
+          applyTranscribeResult(lines);
+          setTranscribeFromCache(true);
+          return;
+        }
+      }
+
       // Read audio as base64
       const arrayBuffer = await audioFile.arrayBuffer();
       const uint8 = new Uint8Array(arrayBuffer);
@@ -319,10 +343,9 @@ export default function App() {
         return;
       }
 
-      // Populate both lyricsText and timed lines
-      setLyricsText(lines.map((l) => l.text).join("\n"));
-      setLyricsLines(lines);
-      setCurrentLineIndex(-1);
+      // Save to cache then apply
+      try { localStorage.setItem(cacheKey, JSON.stringify(lines)); } catch { /* quota exceeded — ignore */ }
+      applyTranscribeResult(lines);
     } catch (err) {
       setTranscribeError(err instanceof Error ? err.message : "Lỗi không xác định");
     } finally {
@@ -452,7 +475,7 @@ export default function App() {
                 Nhận diện lời bài hát (AI)
               </p>
               <button
-                onClick={handleAiTranscribe}
+                onClick={() => handleAiTranscribe(false)}
                 disabled={!audioFile || isTranscribing || isAnalyzing}
                 className="w-full h-11 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all
                   bg-gradient-to-r from-emerald-600 to-teal-600
@@ -472,12 +495,32 @@ export default function App() {
                   </>
                 )}
               </button>
+
+              {/* Status row */}
+              <div className="mt-1.5 flex items-center justify-between gap-2 min-h-[18px]">
+                {transcribeFromCache ? (
+                  <p className="text-[10px] text-emerald-400/80 flex items-center gap-1">
+                    <span>⚡</span> Dùng kết quả đã lưu
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-white/20">
+                    Gemini tự nghe và trả về lời + timestamp
+                  </p>
+                )}
+                {audioFile && transcribeFromCache && (
+                  <button
+                    onClick={() => handleAiTranscribe(true)}
+                    disabled={isTranscribing}
+                    className="text-[10px] text-white/30 hover:text-violet-400 underline underline-offset-2 transition-colors shrink-0 disabled:opacity-30"
+                  >
+                    Nhận diện lại
+                  </button>
+                )}
+              </div>
+
               {transcribeError && (
-                <p className="mt-2 text-[11px] text-red-400/80 leading-relaxed">{transcribeError}</p>
+                <p className="text-[11px] text-red-400/80 leading-relaxed">{transcribeError}</p>
               )}
-              <p className="mt-1.5 text-[10px] text-white/20 leading-relaxed">
-                Gemini sẽ tự nghe và trả về lời + timestamp — không cần nhập tay
-              </p>
             </section>
 
             {/* Divider */}
