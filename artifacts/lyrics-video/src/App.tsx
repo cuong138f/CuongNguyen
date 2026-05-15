@@ -148,6 +148,97 @@ async function findBestCutPoints(file: File, numCuts: number): Promise<number[]>
   return times;
 }
 
+// ─── Lyric style presets ────────────────────────────────────────────────────
+const LYRIC_STYLES = [
+  {
+    id: "purple",
+    label: "Tím sáng",
+    dot: "#c4b5fd",
+    current: {
+      color: "#F2EEFF",
+      textShadow:
+        "0 2px 0 rgba(0,0,0,0.55),-1px -1px 0 rgba(0,0,0,0.4),1px -1px 0 rgba(0,0,0,0.4),-1px 1px 0 rgba(0,0,0,0.4),1px 1px 0 rgba(0,0,0,0.4),0 0 35px rgba(150,110,255,0.75),0 0 65px rgba(150,110,255,0.35)",
+    } as React.CSSProperties,
+    next: (g: number): React.CSSProperties => ({
+      color: "rgba(210,198,255,1)",
+      textShadow: `0 1px 10px rgba(0,0,0,0.85),0 0 ${Math.round(g * 28)}px rgba(150,110,255,${(g * 0.55).toFixed(2)})`,
+    }),
+  },
+  {
+    id: "gold",
+    label: "Vàng kim",
+    dot: "#FFD700",
+    current: {
+      color: "#FFD700",
+      textShadow:
+        "0 2px 0 rgba(0,0,0,0.55),-1px -1px 0 rgba(0,0,0,0.4),1px -1px 0 rgba(0,0,0,0.4),-1px 1px 0 rgba(0,0,0,0.4),1px 1px 0 rgba(0,0,0,0.4),0 0 30px rgba(255,180,0,0.9),0 0 60px rgba(255,120,0,0.4)",
+    } as React.CSSProperties,
+    next: (g: number): React.CSSProperties => ({
+      color: "rgba(255,220,120,1)",
+      textShadow: `0 1px 10px rgba(0,0,0,0.85),0 0 ${Math.round(g * 28)}px rgba(255,180,0,${(g * 0.6).toFixed(2)})`,
+    }),
+  },
+  {
+    id: "fire",
+    label: "Lửa đỏ",
+    dot: "#FF6B35",
+    current: {
+      background: "linear-gradient(to right, #FF4500, #FF8C00, #FFD700)",
+      WebkitBackgroundClip: "text",
+      WebkitTextFillColor: "transparent",
+      backgroundClip: "text",
+      filter: "drop-shadow(0 0 12px rgba(255,80,0,0.8)) drop-shadow(0 2px 4px rgba(0,0,0,0.6))",
+    } as React.CSSProperties,
+    next: (g: number): React.CSSProperties => ({
+      color: "rgba(255,160,50,1)",
+      textShadow: `0 1px 10px rgba(0,0,0,0.85),0 0 ${Math.round(g * 28)}px rgba(255,80,0,${(g * 0.7).toFixed(2)})`,
+    }),
+  },
+  {
+    id: "ice",
+    label: "Băng xanh",
+    dot: "#7DF9FF",
+    current: {
+      color: "#7DF9FF",
+      textShadow:
+        "0 2px 0 rgba(0,0,0,0.55),-1px -1px 0 rgba(0,0,0,0.4),1px -1px 0 rgba(0,0,0,0.4),-1px 1px 0 rgba(0,0,0,0.4),1px 1px 0 rgba(0,0,0,0.4),0 0 30px rgba(100,240,255,0.9),0 0 60px rgba(50,180,255,0.5)",
+    } as React.CSSProperties,
+    next: (g: number): React.CSSProperties => ({
+      color: "rgba(100,230,255,1)",
+      textShadow: `0 1px 10px rgba(0,0,0,0.85),0 0 ${Math.round(g * 28)}px rgba(0,200,255,${(g * 0.65).toFixed(2)})`,
+    }),
+  },
+  {
+    id: "rose",
+    label: "Hồng đào",
+    dot: "#FF80B5",
+    current: {
+      color: "#FF80B5",
+      textShadow:
+        "0 2px 0 rgba(0,0,0,0.55),-1px -1px 0 rgba(0,0,0,0.4),1px -1px 0 rgba(0,0,0,0.4),-1px 1px 0 rgba(0,0,0,0.4),1px 1px 0 rgba(0,0,0,0.4),0 0 30px rgba(255,80,150,0.9),0 0 60px rgba(255,0,100,0.4)",
+    } as React.CSSProperties,
+    next: (g: number): React.CSSProperties => ({
+      color: "rgba(255,160,190,1)",
+      textShadow: `0 1px 10px rgba(0,0,0,0.85),0 0 ${Math.round(g * 28)}px rgba(255,80,150,${(g * 0.65).toFixed(2)})`,
+    }),
+  },
+  {
+    id: "green",
+    label: "Xanh neon",
+    dot: "#69FF47",
+    current: {
+      color: "#69FF47",
+      textShadow:
+        "0 2px 0 rgba(0,0,0,0.55),-1px -1px 0 rgba(0,0,0,0.4),1px -1px 0 rgba(0,0,0,0.4),-1px 1px 0 rgba(0,0,0,0.4),1px 1px 0 rgba(0,0,0,0.4),0 0 30px rgba(80,255,50,0.9),0 0 60px rgba(50,200,0,0.5)",
+    } as React.CSSProperties,
+    next: (g: number): React.CSSProperties => ({
+      color: "rgba(130,255,100,1)",
+      textShadow: `0 1px 10px rgba(0,0,0,0.85),0 0 ${Math.round(g * 28)}px rgba(80,255,50,${(g * 0.65).toFixed(2)})`,
+    }),
+  },
+] as const;
+type LyricStyleId = (typeof LYRIC_STYLES)[number]["id"];
+
 export default function App() {
   const [coverImage, setCoverImage] = useState<string | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -167,6 +258,7 @@ export default function App() {
   const [editingText, setEditingText] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
+  const [lyricStyleId, setLyricStyleId] = useState<LyricStyleId>("purple");
 
   const waveformRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
@@ -541,6 +633,9 @@ export default function App() {
   // Next line grows from small/dim → big/bright during the last 28% of the current line
   const growFactor = Math.max(0, Math.min(1, (lineProgress - 0.72) / 0.28));
 
+  // Active lyric style preset
+  const activeStyle = LYRIC_STYLES.find((s) => s.id === lyricStyleId) ?? LYRIC_STYLES[0];
+
   return (
     <div className="min-h-screen bg-[#080808] text-white flex flex-col select-none">
       {/* Header */}
@@ -719,6 +814,33 @@ export default function App() {
               </p>
             </div>
 
+            {/* Lyric style picker */}
+            <section>
+              <p className="text-[10px] font-semibold tracking-[0.12em] uppercase text-white/40 mb-2.5">
+                Màu chữ
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {LYRIC_STYLES.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => setLyricStyleId(s.id)}
+                    title={s.label}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all border ${
+                      lyricStyleId === s.id
+                        ? "border-white/30 bg-white/[0.1] text-white"
+                        : "border-white/[0.06] bg-white/[0.03] text-white/40 hover:text-white/70 hover:border-white/15"
+                    }`}
+                  >
+                    <span
+                      className="w-3 h-3 rounded-full shrink-0"
+                      style={{ background: s.dot }}
+                    />
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+
             {/* Timeline list */}
             {lyricsLines.length > 0 && (
               <section>
@@ -823,26 +945,22 @@ export default function App() {
                   currentLineIndex >= 0 ? (
                     /* ── 2-line display: next (above, grows) + current (slides in from above) ── */
                     <>
-                      {/* Next line — fades/grows in; size driven live by growFactor */}
-                      <AnimatePresence mode="popLayout">
+                      {/* Next line — fades in on key change, size/color driven live by growFactor */}
+                      <AnimatePresence>
                         {nextLine && (
                           <motion.p
                             key={`next-${currentLineIndex}`}
                             className="text-center"
-                            initial={{ opacity: 0, y: -12 }}
-                            animate={{
-                              opacity: 0.38 + growFactor * 0.37,
-                              y: 0,
-                              fontSize: `clamp(${0.82 + growFactor * 0.45}rem, ${2 + growFactor * 1.2}vw, ${1.15 + growFactor * 0.72}rem)`,
-                            }}
-                            exit={{ opacity: 0, y: -8, transition: { duration: 0.15 } }}
+                            initial={{ opacity: 0, y: -14 }}
+                            animate={{ opacity: 0.38 + growFactor * 0.37, y: 0 }}
+                            exit={{ opacity: 0, y: -8, transition: { duration: 0.18 } }}
                             transition={{ type: "spring", stiffness: 260, damping: 28 }}
                             style={{
+                              fontSize: `clamp(${0.82 + growFactor * 0.45}rem, ${2 + growFactor * 1.2}vw, ${1.15 + growFactor * 0.72}rem)`,
                               fontWeight: growFactor > 0.6 ? 600 : 400,
-                              color: `rgba(210,198,255,1)`,
-                              textShadow: `0 1px 10px rgba(0,0,0,0.85), 0 0 ${Math.round(growFactor * 28)}px rgba(150,110,255,${(growFactor * 0.55).toFixed(2)})`,
                               maxWidth: "82%",
                               lineHeight: 1.4,
+                              ...activeStyle.next(growFactor),
                             }}
                           >
                             {nextLine.text}
@@ -851,7 +969,7 @@ export default function App() {
                       </AnimatePresence>
 
                       {/* Current line — slides in FROM above (like the preview dropping down) + wipe mask */}
-                      <AnimatePresence mode="popLayout">
+                      <AnimatePresence>
                         <motion.div
                           key={`cur-${currentLineIndex}`}
                           className="text-center"
@@ -869,11 +987,9 @@ export default function App() {
                             style={{
                               fontSize: "clamp(1.25rem, 3.3vw, 2.05rem)",
                               fontWeight: 700,
-                              color: "#F2EEFF",
-                              textShadow:
-                                "0 2px 0 rgba(0,0,0,0.55), -1px -1px 0 rgba(0,0,0,0.4), 1px -1px 0 rgba(0,0,0,0.4), -1px 1px 0 rgba(0,0,0,0.4), 1px 1px 0 rgba(0,0,0,0.4), 0 0 35px rgba(150,110,255,0.75), 0 0 65px rgba(150,110,255,0.35)",
                               letterSpacing: "0.015em",
                               lineHeight: 1.3,
+                              ...activeStyle.current,
                             }}
                           >
                             {currentLine?.text}
