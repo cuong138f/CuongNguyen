@@ -148,6 +148,15 @@ async function findBestCutPoints(file: File, numCuts: number): Promise<number[]>
   return times;
 }
 
+// ─── Lyric effect presets ───────────────────────────────────────────────────
+const LYRIC_EFFECTS = [
+  { id: "wipe",     label: "Xóa trái→phải" },
+  { id: "fade",     label: "Mờ dần"        },
+  { id: "blur",     label: "Nhòe dần"      },
+  { id: "karaoke",  label: "Karaoke"       },
+] as const;
+type LyricEffectId = (typeof LYRIC_EFFECTS)[number]["id"];
+
 // ─── Lyric style presets ────────────────────────────────────────────────────
 const LYRIC_STYLES = [
   {
@@ -254,6 +263,7 @@ export default function App() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
   const [transcribeFromCache, setTranscribeFromCache] = useState(false);
+  const [lyricEffect, setLyricEffect] = useState<LyricEffectId>("wipe");
   const [editingLineIndex, setEditingLineIndex] = useState<number | null>(null);
   const [editingText, setEditingText] = useState("");
   const [isExporting, setIsExporting] = useState(false);
@@ -619,16 +629,25 @@ export default function App() {
       ? lyricsLines[currentLineIndex + 1]
       : null;
 
-  // Progress within the current line (0 → 1) drives the left-to-right wipe
+  // Progress within the current line (0 → 1)
   const lineProgress = currentLine
     ? Math.max(0, Math.min(1,
         (currentTime - currentLine.start) /
         Math.max(0.001, currentLine.end - currentLine.start)
       ))
     : 0;
-  const wipePct = (lineProgress * 100).toFixed(2);
-  const edgePct = Math.min(100, lineProgress * 100 + 7).toFixed(2);
-  const wipeMask = `linear-gradient(to right, transparent ${wipePct}%, white ${edgePct}%)`;
+
+  // Wipe: hold fully-visible for 1.5 s, then sweep the remaining duration
+  const WIPE_HOLD = 1.5;
+  const lineDuration = currentLine ? Math.max(0.001, currentLine.end - currentLine.start) : 1;
+  const wipeProgress = lineDuration > WIPE_HOLD
+    ? Math.max(0, Math.min(1,
+        (lineProgress * lineDuration - WIPE_HOLD) / (lineDuration - WIPE_HOLD)
+      ))
+    : lineProgress;
+  const wipePct   = (wipeProgress * 100).toFixed(2);
+  const edgePct   = Math.min(100, wipeProgress * 100 + 7).toFixed(2);
+  const wipeMask  = `linear-gradient(to right, transparent ${wipePct}%, white ${edgePct}%)`;
 
   // Next line grows from small/dim → big/bright during the last 28% of the current line
   const growFactor = Math.max(0, Math.min(1, (lineProgress - 0.72) / 0.28));
@@ -841,6 +860,28 @@ export default function App() {
               </div>
             </section>
 
+            {/* Lyric effect picker */}
+            <section>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-white/30 mb-2">
+                Hiệu ứng chữ
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {LYRIC_EFFECTS.map((e) => (
+                  <button
+                    key={e.id}
+                    onClick={() => setLyricEffect(e.id)}
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all border ${
+                      lyricEffect === e.id
+                        ? "border-white/30 bg-white/[0.1] text-white"
+                        : "border-white/[0.06] bg-white/[0.03] text-white/40 hover:text-white/70 hover:border-white/15"
+                    }`}
+                  >
+                    {e.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+
             {/* Timeline list */}
             {lyricsLines.length > 0 && (
               <section>
@@ -943,34 +984,81 @@ export default function App() {
               >
                 {lyricsLines.length > 0 ? (
                   currentLineIndex >= 0 ? (
-                    /* Current line only — fades in, then wipes left→right as it's sung */
+                    /* Current line — effect applied per lyricEffect setting */
                     <div className="absolute inset-0 flex flex-col justify-end items-center pb-10">
                       <AnimatePresence mode="sync">
-                        <motion.div
-                          key={`cur-${currentLineIndex}`}
-                          className="text-center"
-                          initial={{ opacity: 0, scale: 0.96 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, transition: { duration: 0.18 } }}
-                          transition={{ type: "spring", stiffness: 340, damping: 30 }}
-                          style={{
-                            maxWidth: "90%",
-                            WebkitMaskImage: wipeMask,
-                            maskImage: wipeMask,
-                          }}
-                        >
-                          <p
-                            style={{
+                        {lyricEffect === "karaoke" ? (
+                          /* Karaoke: dim base + bright clip sweeping left → right */
+                          <motion.div
+                            key={`cur-${currentLineIndex}`}
+                            className="text-center relative"
+                            initial={{ opacity: 0, scale: 0.96 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, transition: { duration: 0.18 } }}
+                            transition={{ type: "spring", stiffness: 340, damping: 30 }}
+                            style={{ maxWidth: "90%" }}
+                          >
+                            {/* dim/unsung layer */}
+                            <p style={{
                               fontSize: "clamp(1.3rem, 3.4vw, 2.1rem)",
                               fontWeight: 700,
                               letterSpacing: "0.015em",
                               lineHeight: 1.35,
+                              opacity: 0.35,
                               ...activeStyle.current,
+                            }}>
+                              {currentLine?.text}
+                            </p>
+                            {/* bright/sung layer — clip from left by lineProgress */}
+                            <p style={{
+                              position: "absolute",
+                              inset: 0,
+                              fontSize: "clamp(1.3rem, 3.4vw, 2.1rem)",
+                              fontWeight: 700,
+                              letterSpacing: "0.015em",
+                              lineHeight: 1.35,
+                              clipPath: `inset(0 ${(100 - lineProgress * 100).toFixed(2)}% 0 0)`,
+                              ...activeStyle.current,
+                            }}>
+                              {currentLine?.text}
+                            </p>
+                          </motion.div>
+                        ) : (
+                          <motion.div
+                            key={`cur-${currentLineIndex}`}
+                            className="text-center"
+                            initial={{ opacity: 0, scale: 0.96 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, transition: { duration: 0.18 } }}
+                            transition={{ type: "spring", stiffness: 340, damping: 30 }}
+                            style={{
+                              maxWidth: "90%",
+                              ...(lyricEffect === "wipe" && {
+                                WebkitMaskImage: wipeMask,
+                                maskImage: wipeMask,
+                              }),
+                              ...(lyricEffect === "fade" && {
+                                opacity: Math.max(0, 1 - wipeProgress * 1.1),
+                              }),
+                              ...(lyricEffect === "blur" && {
+                                filter: `blur(${(wipeProgress * 10).toFixed(1)}px)`,
+                                opacity: Math.max(0, 1 - wipeProgress * 0.6),
+                              }),
                             }}
                           >
-                            {currentLine?.text}
-                          </p>
-                        </motion.div>
+                            <p
+                              style={{
+                                fontSize: "clamp(1.3rem, 3.4vw, 2.1rem)",
+                                fontWeight: 700,
+                                letterSpacing: "0.015em",
+                                lineHeight: 1.35,
+                                ...activeStyle.current,
+                              }}
+                            >
+                              {currentLine?.text}
+                            </p>
+                          </motion.div>
+                        )}
                       </AnimatePresence>
                     </div>
                   ) : (
