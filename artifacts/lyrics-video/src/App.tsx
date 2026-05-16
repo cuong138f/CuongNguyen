@@ -542,6 +542,7 @@ export default function App() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
   const [transcribeFromCache, setTranscribeFromCache] = useState(false);
+  const [cacheClearedFlash, setCacheClearedFlash] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
   const [showLyrics, setShowLyrics] = useState(true);
   const [customPrompt, setCustomPrompt] = useState<string>(() =>
@@ -936,6 +937,8 @@ export default function App() {
     }
     toDelete.forEach((k) => localStorage.removeItem(k));
     setTranscribeFromCache(false);
+    setCacheClearedFlash(true);
+    setTimeout(() => setCacheClearedFlash(false), 2000);
   };
 
   // Canvas color map — one entry per lyric style id
@@ -1847,11 +1850,16 @@ export default function App() {
               <div className="mt-auto pt-2 border-t border-white/[0.05]">
                 <button
                   onClick={handleClearCache}
-                  className="w-full flex items-center justify-center gap-1.5 text-[10px] text-white/25 hover:text-red-400/70 transition-colors py-1.5 rounded-lg hover:bg-red-500/[0.06]"
+                  disabled={cacheClearedFlash}
+                  className={`w-full flex items-center justify-center gap-1.5 text-[10px] transition-colors py-1.5 rounded-lg ${
+                    cacheClearedFlash
+                      ? "text-green-400/80 bg-green-500/[0.08] border border-green-500/20 cursor-default"
+                      : "text-white/25 hover:text-red-400/70 hover:bg-red-500/[0.06]"
+                  }`}
                   title="Xóa cache nhận diện AI để gọi lại API khi bấm Nhận diện AI"
                 >
                   <Trash2 className="w-3 h-3" />
-                  Xóa Cache AI
+                  {cacheClearedFlash ? "Đã xóa cache!" : "Xóa Cache AI"}
                 </button>
               </div>
             )}
