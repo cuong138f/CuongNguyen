@@ -30,6 +30,22 @@ function formatTimeFull(s: number) {
 
 // Returns true for section header lines like [Verse 1], [Điệp khúc], [Chorus], etc.
 // These should not be sent to Gemini as lyric lines to timestamp.
+/** Parse "2:30" or "150" → seconds */
+function parseCutPoint(s: string): number {
+  const t = s.trim();
+  if (t.includes(":")) {
+    const [m, sec] = t.split(":").map(Number);
+    return (m || 0) * 60 + (sec || 0);
+  }
+  return parseFloat(t) || 0;
+}
+/** Seconds → "M:SS" */
+function fmtCutSecs(secs: number): string {
+  const m = Math.floor(secs / 60);
+  const s = Math.round(secs % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 function isSectionMarker(text: string): boolean {
   const t = text.trim();
   if (!t) return false;
@@ -558,6 +574,7 @@ export default function App() {
   const [isFixing, setIsFixing] = useState(false);
   const [fixError, setFixError] = useState<string | null>(null);
   const [splitParts, setSplitParts] = useState<1 | 2 | 3>(1);
+  const [splitCutInputs, setSplitCutInputs] = useState<string[]>([]);
   const [splitProgress, setSplitProgress] = useState<{ current: number; total: number } | null>(null);
   const [customPrompt, setCustomPrompt] = useState<string>(() =>
     localStorage.getItem("lv_customPrompt") ?? DEFAULT_PROMPT
@@ -689,6 +706,16 @@ export default function App() {
   useEffect(() => { localStorage.setItem("lv_lyricFontSize", String(lyricFontSize)); }, [lyricFontSize]);
   useEffect(() => { localStorage.setItem("lv_prerollSeconds", String(prerollSeconds)); }, [prerollSeconds]);
   useEffect(() => { localStorage.setItem("lv_customPrompt", customPrompt); }, [customPrompt]);
+  // Auto-populate cut inputs when splitParts or duration changes
+  useEffect(() => {
+    if (splitParts <= 1) { setSplitCutInputs([]); return; }
+    const n = splitParts;
+    setSplitCutInputs(
+      Array.from({ length: n - 1 }, (_, i) =>
+        duration > 0 ? fmtCutSecs(duration * (i + 1) / n) : ""
+      )
+    );
+  }, [splitParts, duration]);
 
   const handleCoverUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -807,9 +834,10 @@ export default function App() {
 
   // Decode audio → 16 kHz mono, slice into numParts equal PCM segments, encode each as WAV.
   // Returns [{file, offset}] where offset is the start time (seconds) of each part.
+  // cutPointsSecs: sorted list of cut times in seconds, e.g. [90, 180] → 3 segments
   const splitDecodeAudio = async (
     file: File,
-    numParts: number
+    cutPointsSecs: number[]
   ): Promise<Array<{ file: File; offset: number }>> => {
     const TARGET_SR = 16_000;
     const arrayBuf = await file.arrayBuffer();
@@ -844,11 +872,17 @@ export default function App() {
       return buf;
     };
 
-    const samplesPerPart = Math.ceil(totalSamples / numParts);
+    // Build sample boundaries: [0, cut1, cut2, ..., totalSamples]
+    const boundaries = [
+      0,
+      ...cutPointsSecs.map((t) => Math.min(Math.round(t * TARGET_SR), totalSamples - 1)),
+      totalSamples,
+    ];
+    const numParts = boundaries.length - 1;
     const parts: Array<{ file: File; offset: number }> = [];
     for (let i = 0; i < numParts; i++) {
-      const startSample = i * samplesPerPart;
-      const endSample = Math.min((i + 1) * samplesPerPart, totalSamples);
+      const startSample = boundaries[i];
+      const endSample = boundaries[i + 1];
       const pcm = pcmFull.slice(startSample, endSample);
       const wavBuf = encodeWav(pcm);
       const partFile = new File([wavBuf], `part_${i + 1}of${numParts}.wav`, { type: "audio/wav" });
@@ -952,10 +986,14 @@ export default function App() {
 
       // ── Split mode: decode once → slice N parts → send sequentially → offset & merge ──
       if (splitParts > 1 && !useSyncMode) {
-        const parts = await splitDecodeAudio(audioFile, splitParts);
+        const parsedCuts = splitCutInputs
+          .map(parseCutPoint)
+          .filter((t) => t > 0 && (!duration || t < duration))
+          .sort((a, b) => a - b);
+        const parts = await splitDecodeAudio(audioFile, parsedCuts);
         const allLines: { text: string; start: number; end: number }[] = [];
         for (let pi = 0; pi < parts.length; pi++) {
-          setSplitProgress({ current: pi + 1, total: splitParts });
+          setSplitProgress({ current: pi + 1, total: parts.length });
           const { file: partFile, offset } = parts[pi];
           const form = new FormData();
           form.append("audio", partFile, partFile.name);
@@ -1733,20 +1771,44 @@ export default function App() {
 
         {/* Status indicators */}
         {/* Split parts selector */}
-        <div className="flex items-center gap-0.5 bg-white/[0.04] rounded-lg p-0.5 border border-white/[0.06] shrink-0" title="Chia bài thành nhiều phần để gửi tuần tự — giúp nhận diện bài dài đầy đủ hơn">
-          {([1, 2, 3] as const).map((n) => (
-            <button
-              key={n}
-              onClick={() => setSplitParts(n)}
-              disabled={isTranscribing || isSyncing}
-              className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all disabled:opacity-40 ${
-                splitParts === n ? "bg-white/15 text-white" : "text-white/30 hover:text-white/60"
-              }`}
-              title={n === 1 ? "Gửi nguyên bài (mặc định)" : `Chia thành ${n} phần, gửi tuần tự`}
-            >
-              {n === 1 ? "1×" : `${n} phần`}
-            </button>
-          ))}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-0.5 bg-white/[0.04] rounded-lg p-0.5 border border-white/[0.06]">
+            {([1, 2, 3] as const).map((n) => (
+              <button
+                key={n}
+                onClick={() => setSplitParts(n)}
+                disabled={isTranscribing || isSyncing}
+                className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all disabled:opacity-40 ${
+                  splitParts === n ? "bg-white/15 text-white" : "text-white/30 hover:text-white/60"
+                }`}
+                title={n === 1 ? "Gửi nguyên bài (mặc định)" : `Chia thành ${n} phần, gửi tuần tự`}
+              >
+                {n === 1 ? "1×" : `${n} phần`}
+              </button>
+            ))}
+          </div>
+          {/* Editable cut points */}
+          {splitParts > 1 && (
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-white/25">cắt:</span>
+              {splitCutInputs.map((val, idx) => (
+                <input
+                  key={idx}
+                  type="text"
+                  value={val}
+                  onChange={(e) => {
+                    const next = [...splitCutInputs];
+                    next[idx] = e.target.value;
+                    setSplitCutInputs(next);
+                  }}
+                  placeholder="2:30"
+                  disabled={isTranscribing || isSyncing}
+                  className="w-14 bg-white/[0.06] border border-white/[0.10] focus:border-violet-500/50 rounded-md px-1.5 py-1 text-[10px] text-white/70 font-mono text-center outline-none transition-all disabled:opacity-40"
+                  title={`Điểm cắt ${idx + 1} — nhập M:SS hoặc giây (ví dụ: 2:30 hoặc 150)`}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
         {transcribeFromCache && !isTranscribing && (
