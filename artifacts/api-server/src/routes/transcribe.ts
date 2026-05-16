@@ -22,31 +22,29 @@ function normalizeMimeType(raw: string): { mimeType: string; ext: string } {
   return { mimeType: "audio/mp3", ext: "mp3" };
 }
 
-const PROMPT = `
-Bạn là chuyên gia phiên âm lời bài hát. Lắng nghe TOÀN BỘ audio từ đầu đến cuối, xuất tất cả dòng lời với timestamp chính xác.
+const PROMPT = `You are an audio transcription tool. Listen to this ENTIRE audio file from start to finish and output every lyric line with its precise timestamp.
 
-OUTPUT: Chỉ mảng JSON thuần — không markdown, không code block, không giải thích.
-[{ "text": "dòng lời", "start": 12.3, "end": 14.8 }, ...]
+Return ONLY a raw JSON array — no markdown, no code block, no explanation:
+[{"text": "lyric line", "start": 12.3, "end": 14.8}, ...]
 
-TIMESTAMP:
-• "start" = giây khi giọng ca BẮT ĐẦU dòng này
-• "end" = giây khi giọng ca NGỪNG HẲN tại âm tiết cuối (không phải lúc dòng kế bắt đầu)
-• Số thập phân 1 chữ số  •  "end" > "start"  •  thường 1.5–8 giây/dòng
-• Tăng dần: "start"[n] > "end"[n-1] — không chồng chéo
-• Không vượt tổng thời lượng file
+TIMESTAMPS:
+• "start" = exact second the first syllable of this line begins
+• "end" = exact second the last syllable of this line ends (NOT when the next line starts)
+• 1 decimal place • end > start • lines never overlap • strictly chronological order
 
-NỘI DUNG:
-• Ghi TẤT CẢ: verse, chorus, bridge, hook, ad-lib, backing vocal có lời riêng
-• Đoạn lặp (chorus/hook hát nhiều lần): mỗi lần hát = 1 entry riêng với timestamp riêng
-• Bỏ qua chỉ đoạn hoàn toàn không lời (nhạc thuần, solo nhạc cụ)
-• Phiên âm đúng âm thanh nghe được — không tự thêm hay bịa lời
-• Một dòng = một câu nhạc / một hơi thở; nếu > 8 giây thì cắt tại điểm ngắt tự nhiên
+COMPLETENESS — process the full file, do not stop early:
+• Include every sung phrase: verse, chorus, bridge, hook, ad-lib, backing vocals with distinct lyrics
+• Each chorus/hook repetition = a separate JSON entry with its own timestamps
+• Omit only purely instrumental sections (no vocals at all)
+• A typical song has 30–80+ lines — output ALL of them
 
-ĐẦY ĐỦ: Bài hát thường 30–60+ dòng — xuất toàn bộ, không dừng giữa chừng. Dòng cuối phải có "start" nằm trong 60 giây cuối file.
-• Không để khoảng trống > 20 giây giữa hai dòng lời liên tiếp, trừ khi đoạn đó thực sự hoàn toàn không có lời
+LINE FORMATTING:
+• One line = one musical phrase / one breath
+• If a phrase exceeds 8 seconds, split it at a natural pause
+• For Vietnamese: write exact tone marks as you hear them (đúng dấu thanh điệu)
+• Transcribe only what you hear — do not invent or add lyrics
 
-Xuất mảng JSON:
-`.trim();
+Output the JSON array:`.trim();
 
 const SYNC_PROMPT = (lyrics: string[]) =>
   `Bạn là chuyên gia đồng bộ lời bài hát. Nghe audio và tìm timestamp chính xác cho ${lyrics.length} dòng lời dưới đây.
