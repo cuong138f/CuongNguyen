@@ -65,6 +65,19 @@ QUY TẮC:
 
 Xuất mảng JSON:`.trim();
 
+const buildFixPrompt = (
+  current: Array<{ text: string; start: number; end: number }>,
+  request: string
+) =>
+  `Đây là kết quả phiên âm hiện tại (${current.length} dòng):
+${JSON.stringify(current, null, 2)}
+
+Yêu cầu sửa: ${request}
+
+Hãy lắng nghe lại audio và thực hiện yêu cầu trên. Trả về mảng JSON đầy đủ đã được sửa — toàn bộ danh sách (không chỉ các dòng thay đổi).
+[{ "text": "dòng lời", "start": 12.3, "end": 14.8 }, ...]
+Chỉ mảng JSON thuần — không markdown, không giải thích.`.trim();
+
 // Files ≤ this size can be sent inline (Gemini inlineData limit)
 const INLINE_LIMIT_BYTES = 4 * 1024 * 1024; // 4 MB
 
@@ -81,6 +94,8 @@ router.post("/transcribe-audio", upload.single("audio"), async (req, res) => {
   let customPrompt: string | undefined;
   let knownLyrics: string[] | undefined;
   let hintLyrics: string[] | undefined;
+  let fixRequest: string | undefined;
+  let currentLyrics: Array<{ text: string; start: number; end: number }> | undefined;
 
   if (req.file) {
     // Multipart upload
@@ -95,6 +110,11 @@ router.post("/transcribe-audio", upload.single("audio"), async (req, res) => {
     if (hl) {
       try { hintLyrics = JSON.parse(hl) as string[]; } catch { /* ignore */ }
     }
+    fixRequest = req.body.fixRequest as string | undefined;
+    const cl = req.body.currentLyrics as string | undefined;
+    if (cl) {
+      try { currentLyrics = JSON.parse(cl) as Array<{ text: string; start: number; end: number }>; } catch { /* ignore */ }
+    }
   } else {
     // Legacy JSON body fallback
     const body = req.body as {
@@ -103,16 +123,20 @@ router.post("/transcribe-audio", upload.single("audio"), async (req, res) => {
       customPrompt?: string;
       knownLyrics?: string[];
       hintLyrics?: string[];
+      fixRequest?: string;
+      currentLyrics?: Array<{ text: string; start: number; end: number }>;
     };
     if (!body.audioBase64 || !body.mimeType) {
       res.status(400).json({ error: "Provide audio via multipart 'audio' field or legacy audioBase64+mimeType JSON" });
       return;
     }
-    audioBuffer  = Buffer.from(body.audioBase64, "base64");
-    rawMimeType  = body.mimeType;
-    customPrompt = body.customPrompt;
-    knownLyrics  = body.knownLyrics;
-    hintLyrics   = body.hintLyrics;
+    audioBuffer    = Buffer.from(body.audioBase64, "base64");
+    rawMimeType    = body.mimeType;
+    customPrompt   = body.customPrompt;
+    knownLyrics    = body.knownLyrics;
+    hintLyrics     = body.hintLyrics;
+    fixRequest     = body.fixRequest;
+    currentLyrics  = body.currentLyrics;
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
@@ -132,18 +156,25 @@ router.post("/transcribe-audio", upload.single("audio"), async (req, res) => {
     ? hintLyrics.map((l) => String(l).trim()).filter(Boolean)
     : null;
 
+  // Fix-request mode: takes priority over all other prompt types
+  const validFixRequest = !validKnownLyrics && fixRequest?.trim() ? fixRequest.trim() : null;
+  const validCurrentLyrics = validFixRequest && Array.isArray(currentLyrics) && currentLyrics.length > 0
+    ? currentLyrics
+    : null;
+
   const basePrompt = validKnownLyrics
     ? SYNC_PROMPT(validKnownLyrics)
     : (customPrompt?.trim()) || PROMPT;
 
-  // Append hint lyrics to the bottom of the free-mode prompt so Gemini knows
-  // the expected wording/spelling — helps with Vietnamese diacritics accuracy.
-  const activePrompt = validHintLyrics
-    ? `${basePrompt}\n\nGỢI Ý CHÍNH TẢ (${validHintLyrics.length} dòng — ưu tiên dùng đúng dấu thanh tiếng Việt theo danh sách này):\n${validHintLyrics.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nDùng danh sách trên để viết đúng chính tả. Timestamp vẫn phải tự xác định từ audio.`
-    : basePrompt;
+  // Priority: fix-request > hint > base
+  const activePrompt = validFixRequest && validCurrentLyrics
+    ? buildFixPrompt(validCurrentLyrics, validFixRequest)
+    : validHintLyrics
+      ? `${basePrompt}\n\nGỢI Ý CHÍNH TẢ (${validHintLyrics.length} dòng — ưu tiên dùng đúng dấu thanh tiếng Việt theo danh sách này):\n${validHintLyrics.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nDùng danh sách trên để viết đúng chính tả. Timestamp vẫn phải tự xác định từ audio.`
+      : basePrompt;
 
   req.log.info(
-    { rawMimeType, mimeType, bytes: audioBuffer.byteLength, syncMode: !!validKnownLyrics, hasHint: !!validHintLyrics, hintLines: validHintLyrics?.length, usingCustomPrompt: !!customPrompt?.trim() },
+    { rawMimeType, mimeType, bytes: audioBuffer.byteLength, syncMode: !!validKnownLyrics, hasHint: !!validHintLyrics, fixMode: !!validFixRequest, usingCustomPrompt: !!customPrompt?.trim() },
     "Starting transcription"
   );
 

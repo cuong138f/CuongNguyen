@@ -554,6 +554,9 @@ export default function App() {
   const [cacheClearedFlash, setCacheClearedFlash] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
   const [showLyrics, setShowLyrics] = useState(true);
+  const [fixRequest, setFixRequest] = useState("");
+  const [isFixing, setIsFixing] = useState(false);
+  const [fixError, setFixError] = useState<string | null>(null);
   const [customPrompt, setCustomPrompt] = useState<string>(() =>
     localStorage.getItem("lv_customPrompt") ?? DEFAULT_PROMPT
   );
@@ -942,6 +945,36 @@ export default function App() {
     } finally {
       setIsTranscribing(false);
       setIsSyncing(false);
+    }
+  };
+
+  const handleFixRequest = async () => {
+    if (!audioFile || !fixRequest.trim() || lyricsLines.length === 0) return;
+    setIsFixing(true);
+    setFixError(null);
+    try {
+      const fileToSend = /\.wav$/i.test(audioFile.name) || audioFile.type === "audio/wav"
+        ? await downsampleWavFile(audioFile)
+        : audioFile;
+      const currentLines = lyricsLines
+        .filter((l) => !l.isMarker)
+        .map((l) => ({ text: l.text, start: l.start, end: l.end }));
+      const form = new FormData();
+      form.append("audio", fileToSend, fileToSend.name);
+      form.append("currentLyrics", JSON.stringify(currentLines));
+      form.append("fixRequest", fixRequest.trim());
+      const res = await fetch("/api/transcribe-audio", { method: "POST", body: form });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+      const data = await res.json() as { lines: { text: string; start: number; end: number }[] };
+      applyTranscribeResult(data.lines, false);
+      setFixRequest("");
+    } catch (e) {
+      setFixError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsFixing(false);
     }
   };
 
@@ -1750,6 +1783,50 @@ export default function App() {
                 spellCheck={false}
                 className="w-full bg-white/[0.03] border border-white/[0.08] focus:border-violet-500/40 rounded-xl p-3 text-[11px] text-white/60 resize-none outline-none transition-all font-mono leading-relaxed"
               />
+
+              {/* ── Fix / correction request ── */}
+              {audioFile && lyricsLines.length > 0 && (
+                <div className="flex flex-col gap-1.5 border-t border-white/[0.06] pt-3 mt-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-semibold tracking-[0.12em] uppercase text-amber-400/60">
+                      Yêu cầu sửa kết quả
+                    </span>
+                    <span className="text-[10px] text-white/20">{lyricsLines.filter(l => !l.isMarker).length} dòng hiện tại</span>
+                  </div>
+                  <textarea
+                    value={fixRequest}
+                    onChange={(e) => setFixRequest(e.target.value)}
+                    rows={3}
+                    spellCheck={false}
+                    placeholder={"Ví dụ: Bổ sung đoạn lời từ 2:22 đến 3:25 bị thiếu\nHoặc: Sửa timestamp từ dòng 10 trở đi bị lệch\nHoặc: Tách dòng 5 thành 2 dòng ngắn hơn"}
+                    className="w-full bg-white/[0.03] border border-white/[0.08] focus:border-amber-500/40 rounded-xl p-3 text-[11px] text-white/60 resize-none outline-none transition-all leading-relaxed placeholder:text-white/15"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) handleFixRequest();
+                    }}
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleFixRequest}
+                      disabled={!fixRequest.trim() || isFixing}
+                      className="h-8 px-4 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all
+                        bg-gradient-to-r from-amber-600 to-orange-600
+                        hover:from-amber-500 hover:to-orange-500
+                        shadow-md shadow-amber-500/20
+                        disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none"
+                    >
+                      {isFixing ? (
+                        <><Loader2 className="w-3.5 h-3.5 animate-spin" />Đang xử lý...</>
+                      ) : (
+                        <><Wand2 className="w-3.5 h-3.5" />Gửi yêu cầu</>
+                      )}
+                    </button>
+                    <span className="text-[10px] text-white/20">Ctrl+Enter để gửi</span>
+                    {fixError && (
+                      <span className="text-[10px] text-red-400/80 flex-1 truncate">{fixError}</span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
