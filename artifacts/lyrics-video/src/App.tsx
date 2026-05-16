@@ -1843,7 +1843,7 @@ export default function App() {
           {/* 16:9 Video Preview — flex-1, height-driven */}
           <div className="flex-1 flex items-center justify-center px-4 pt-3 pb-1 min-h-0 overflow-hidden">
           <div className="h-full aspect-video max-w-[900px] min-w-0">
-            <div className="w-full h-full rounded-2xl overflow-hidden relative shadow-2xl shadow-black/70 ring-1 ring-white/[0.06]">
+            <div className="w-full h-full rounded-2xl overflow-hidden relative shadow-2xl shadow-black/70 ring-1 ring-white/[0.06]" style={{ containerType: "inline-size" }}>
               {coverImage ? (
                 <>
                   <img
@@ -1900,7 +1900,7 @@ export default function App() {
                             /* Wave: static text + animated swoosh underline draws L→R */
                             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
                               <p style={{
-                                fontSize: `calc(clamp(1.3rem, 3.4vw, 2.1rem) * ${lyricFontSize / 100})`,
+                                fontSize: `calc(clamp(1.1rem, 4.2cqw, 2.5rem) * ${lyricFontSize / 100})`,
                                 fontWeight: 700,
                                 letterSpacing: "0.015em",
                                 lineHeight: 1.35,
@@ -1936,7 +1936,7 @@ export default function App() {
                               text={currentLine?.text ?? ""}
                               progress={lineProgress}
                               style={activeStyle}
-                              fontSize={`calc(clamp(1.3rem, 3.4vw, 2.1rem) * ${lyricFontSize / 100})`}
+                              fontSize={`calc(clamp(1.1rem, 4.2cqw, 2.5rem) * ${lyricFontSize / 100})`}
                             />
                           ) : lyricEffect === "wipe" ? (
                             /* Wipe: word-by-word erase left→right after 1.5 s hold */
@@ -1944,11 +1944,11 @@ export default function App() {
                               text={currentLine?.text ?? ""}
                               wipeProgress={wipeProgress}
                               style={activeStyle}
-                              fontSize={`calc(clamp(1.3rem, 3.4vw, 2.1rem) * ${lyricFontSize / 100})`}
+                              fontSize={`calc(clamp(1.1rem, 4.2cqw, 2.5rem) * ${lyricFontSize / 100})`}
                             />
                           ) : (
                             <p style={{
-                              fontSize: `calc(clamp(1.3rem, 3.4vw, 2.1rem) * ${lyricFontSize / 100})`,
+                              fontSize: `calc(clamp(1.1rem, 4.2cqw, 2.5rem) * ${lyricFontSize / 100})`,
                               fontWeight: 700,
                               letterSpacing: "0.015em",
                               lineHeight: 1.35,
