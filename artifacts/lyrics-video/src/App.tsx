@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import WaveSurfer from "wavesurfer.js";
 import fixWebmDuration from "fix-webm-duration";
@@ -14,6 +14,12 @@ function formatTime(s: number) {
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
   return `${m}:${sec.toString().padStart(2, "0")}`;
+}
+
+function formatTimeD(s: number) {
+  const m = Math.floor(s / 60);
+  const sec = (s % 60).toFixed(1);
+  return `${m}:${sec.padStart(4, "0")}`;
 }
 
 function formatTimeFull(s: number) {
@@ -487,7 +493,6 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [currentLineIndex, setCurrentLineIndex] = useState(-1);
   const [isReady, setIsReady] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -577,33 +582,24 @@ export default function App() {
     return () => { ws.destroy(); };
   }, [audioUrl]);
 
-  useEffect(() => {
-    if (!lyricsLines.length) return;
-
-    // Find the active line with pre-roll look-ahead.
+  // Derived value — computed synchronously during render, no setState loop possible.
+  const currentLineIndex = useMemo(() => {
+    if (!lyricsLines.length) return -1;
     const lookAhead = currentTime + prerollSeconds;
     let idx = -1;
     for (let i = 0; i < lyricsLines.length; i++) {
       if (lookAhead >= lyricsLines[i].start) {
-        idx = i; // last line whose pre-roll window has opened
-        if (lookAhead < lyricsLines[i].end) break; // exact match — stop
+        idx = i;
+        if (lookAhead < lyricsLines[i].end) break;
       }
     }
-
-    // During short pauses keep the previous line visible so wipe looks complete.
-    // During long instrumental gaps (≥ 4 s to next line start, adjusted for pre-roll),
-    // hide the lyric so the screen clears out for the dạo nhạc section.
     if (idx >= 0 && currentTime > lyricsLines[idx].end) {
       const nextStart = idx + 1 < lyricsLines.length
         ? lyricsLines[idx + 1].start - prerollSeconds
         : Infinity;
-      const gapRemaining = nextStart - currentTime;
-      if (gapRemaining > 4.0) {
-        idx = -1; // long instrumental break — hide lyrics
-      }
+      if (nextStart - currentTime > 4.0) idx = -1;
     }
-
-    setCurrentLineIndex(idx);
+    return idx;
   }, [currentTime, lyricsLines, prerollSeconds]);
 
   useEffect(() => {
@@ -635,7 +631,6 @@ export default function App() {
     setAudioFile(file);
     setAudioUrl(URL.createObjectURL(file));
     setLyricsLines([]);
-    setCurrentLineIndex(-1);
   };
 
   const handleAutoTimeline = async () => {
@@ -663,7 +658,6 @@ export default function App() {
           end: boundaries[i + 1] ?? duration,
         }))
       );
-      setCurrentLineIndex(-1);
     } catch {
       // Fallback: skip first quarter as intro, distribute rest evenly
       const introEnd = duration * 0.1;
@@ -709,7 +703,6 @@ export default function App() {
           return { text, start, end };
         });
         setLyricsLines(synced);
-        setCurrentLineIndex(-1);
         return;
       }
     }
@@ -717,7 +710,6 @@ export default function App() {
     // "Nhận diện AI" mode (or Đồng bộ fallback): use Gemini's text + timestamps as-is
     setLyricsText(geminiLines.map((l) => l.text).join("\n"));
     setLyricsLines(geminiLines);
-    setCurrentLineIndex(-1);
   };
 
   const handleAiTranscribe = async (forceRefresh = false, keepManual = false) => {
@@ -858,7 +850,6 @@ export default function App() {
     const newLines = lyricsLines.filter((_, idx) => idx !== i);
     setLyricsLines(newLines);
     setLyricsText(newLines.map((l) => l.text).join("\n"));
-    if (currentLineIndex >= newLines.length) setCurrentLineIndex(newLines.length - 1);
   };
 
   // Canvas color map — one entry per lyric style id
@@ -1556,7 +1547,7 @@ export default function App() {
                           className="font-mono text-violet-400/70 shrink-0 tabular-nums text-[10px] hover:text-amber-400 transition-colors cursor-text"
                           title="Nhấn để chỉnh thời điểm bắt đầu"
                         >
-                          {formatTime(line.start)}
+                          {formatTimeD(line.start)}
                         </button>
                       )}
 
@@ -1671,7 +1662,7 @@ export default function App() {
                             className="font-mono text-teal-400/50 shrink-0 tabular-nums text-[10px] hover:text-teal-300 transition-colors cursor-text"
                             title="Nhấn để chỉnh thời điểm kết thúc"
                           >
-                            {formatTime(line.end)}
+                            {formatTimeD(line.end)}
                           </button>
                         )
                       )}
