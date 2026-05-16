@@ -27,6 +27,20 @@ function formatTimeFull(s: number) {
   return `${m}:${secStr}`;
 }
 
+const EXPORT_QUALITY = {
+  fast:   { W: 854,  H: 480,  vbr: 2_000_000, abr:  96_000 },
+  normal: { W: 1280, H: 720,  vbr: 5_000_000, abr: 128_000 },
+  high:   { W: 1920, H: 1080, vbr: 8_000_000, abr: 192_000 },
+} as const;
+type ExportQuality = keyof typeof EXPORT_QUALITY;
+
+function fmtEta(secs: number): string {
+  if (secs < 4) return "";
+  const m = Math.floor(secs / 60);
+  const s = Math.round(secs % 60);
+  return m > 0 ? `~${m}m${s}s` : `~${s}s`;
+}
+
 const DEFAULT_PROMPT = `You are an expert music lyrics transcription assistant. Your task is to listen to the ENTIRE audio file from beginning to end and produce a precise, complete timestamped transcript of ALL sung lyrics.
 
 RETURN FORMAT: A JSON array only — no markdown, no code blocks, no comments, no explanations.
@@ -552,6 +566,11 @@ export default function App() {
   const [exportingFormat, setExportingFormat] = useState<"webm" | "mkv" | "mov">("webm");
   const [exportProgress, setExportProgress] = useState(0);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [exportQuality, setExportQuality] = useState<ExportQuality>(() => {
+    return (localStorage.getItem("lv_exportQuality") as ExportQuality | null) ?? "normal";
+  });
+  const [exportEta, setExportEta] = useState("");
+  const exportStartRef = useRef<number>(0);
   const [lyricStyleId, setLyricStyleId] = useState<LyricStyleId>(() => {
     const saved = localStorage.getItem("lv_lyricStyleId");
     return (saved && ["purple", "gold", "cyan", "rose", "green", "white"].includes(saved) ? saved : "purple") as LyricStyleId;
@@ -972,9 +991,12 @@ export default function App() {
     setExportingFormat(fmt);
     setIsExporting(true);
     setExportProgress(0);
+    setExportEta("");
+    exportStartRef.current = Date.now();
 
     try {
-      const W = 1280, H = 720, FPS = 30;
+      const { W, H, vbr, abr } = EXPORT_QUALITY[exportQuality];
+      const FPS = 30;
       const canvas = document.createElement("canvas");
       canvas.width = W; canvas.height = H;
       const ctx = canvas.getContext("2d")!;
@@ -1004,6 +1026,12 @@ export default function App() {
         type: fmt === "mkv" ? "matroska" : "webm",
       });
 
+      const hwCheckVP8 = await VideoEncoder.isConfigSupported({
+        codec: "vp8", width: W, height: H, bitrate: vbr, framerate: FPS,
+        hardwareAcceleration: "prefer-hardware",
+      });
+      const hwAccel: HardwareAcceleration = hwCheckVP8.supported ? "prefer-hardware" : "prefer-software";
+
       let videoEncoderError: Error | null = null;
       const videoEncoder = new VideoEncoder({
         output: (chunk, meta) => muxer.addVideoChunk(chunk, meta!),
@@ -1012,10 +1040,10 @@ export default function App() {
       videoEncoder.configure({
         codec: "vp8",
         width: W, height: H,
-        bitrate: 5_000_000,
+        bitrate: vbr,
         framerate: FPS,
         latencyMode: "quality",
-        hardwareAcceleration: "prefer-software",
+        hardwareAcceleration: hwAccel,
       });
 
       if (hasAudio && audioFile) {
@@ -1024,7 +1052,7 @@ export default function App() {
           output: (chunk, meta) => muxer.addAudioChunk(chunk, meta!),
           error: (e) => { audioEncoderError = e; },
         });
-        audioEncoder.configure({ codec: "opus", sampleRate: 44100, numberOfChannels: 2, bitrate: 128_000 });
+        audioEncoder.configure({ codec: "opus", sampleRate: 44100, numberOfChannels: 2, bitrate: abr });
 
         const arrayBuf = await audioFile.arrayBuffer();
         const audioCtx = new AudioContext({ sampleRate: 44100 });
@@ -1062,18 +1090,27 @@ export default function App() {
         videoEncoder.encode(vf, { keyFrame: fi % 90 === 0 });
         vf.close();
         if (fi % 30 === 0) {
-          setExportProgress(fi / totalFrames * 0.95);
+          const prog = fi / totalFrames * 0.90;
+          setExportProgress(prog);
+          if (prog > 0.02) {
+            const elapsed = (Date.now() - exportStartRef.current) / 1000;
+            const remaining = elapsed / prog * (1 - prog);
+            setExportEta(fmtEta(remaining));
+          }
           await new Promise((r) => setTimeout(r, 0));
           if (videoEncoderError) throw videoEncoderError;
         }
       }
 
-      setExportProgress(0.96);
+      setExportProgress(0.93);
+      setExportEta("Đang flush...");
       await videoEncoder.flush();
       if (videoEncoderError) throw videoEncoderError;
       setExportProgress(0.99);
+      setExportEta("Đang đóng gói...");
       muxer.finalize();
       setExportProgress(1.0);
+      setExportEta("");
       await new Promise((r) => setTimeout(r, 200));
 
       const mimeType = fmt === "mkv" ? "video/x-matroska" : "video/webm";
@@ -1104,14 +1141,17 @@ export default function App() {
       return;
     }
 
-    const W = 1280, H = 720, FPS = 30;
     const CODEC_VIDEO = "avc1.42E01E"; // H.264 Baseline 3.0
 
     setExportingFormat("mov");
     setIsExporting(true);
     setExportProgress(0);
+    setExportEta("");
+    exportStartRef.current = Date.now();
 
     try {
+      const { W, H, vbr, abr } = EXPORT_QUALITY[exportQuality];
+      const FPS = 30;
       const canvas = document.createElement("canvas");
       canvas.width = W; canvas.height = H;
       const ctx = canvas.getContext("2d")!;
@@ -1142,6 +1182,12 @@ export default function App() {
         fastStart: "in-memory",
       });
 
+      const hwCheckH264 = await VideoEncoder.isConfigSupported({
+        codec: CODEC_VIDEO, width: W, height: H, bitrate: vbr, framerate: FPS,
+        hardwareAcceleration: "prefer-hardware",
+      });
+      const hwAccel: HardwareAcceleration = hwCheckH264.supported ? "prefer-hardware" : "prefer-software";
+
       // VideoEncoder
       let videoEncoderError: Error | null = null;
       const videoEncoder = new VideoEncoder({
@@ -1151,10 +1197,10 @@ export default function App() {
       videoEncoder.configure({
         codec: CODEC_VIDEO,
         width: W, height: H,
-        bitrate: 6_000_000,
+        bitrate: vbr,
         framerate: FPS,
         latencyMode: "quality",
-        hardwareAcceleration: "prefer-software",
+        hardwareAcceleration: hwAccel,
       });
 
       // Audio: decode + encode before video frames
@@ -1164,7 +1210,7 @@ export default function App() {
           output: (chunk, meta) => muxer.addAudioChunk(chunk, meta!),
           error: (e) => { audioEncoderError = e; },
         });
-        audioEncoder.configure({ codec: "mp4a.40.2", sampleRate: 44100, numberOfChannels: 2, bitrate: 128_000 });
+        audioEncoder.configure({ codec: "mp4a.40.2", sampleRate: 44100, numberOfChannels: 2, bitrate: abr });
 
         const arrayBuf = await audioFile.arrayBuffer();
         const audioCtx = new AudioContext({ sampleRate: 44100 });
@@ -1203,18 +1249,27 @@ export default function App() {
         videoEncoder.encode(vf, { keyFrame: fi % 90 === 0 });
         vf.close();
         if (fi % 30 === 0) {
-          setExportProgress(fi / totalFrames * 0.95);
+          const prog = fi / totalFrames * 0.90;
+          setExportProgress(prog);
+          if (prog > 0.02) {
+            const elapsed = (Date.now() - exportStartRef.current) / 1000;
+            const remaining = elapsed / prog * (1 - prog);
+            setExportEta(fmtEta(remaining));
+          }
           await new Promise((r) => setTimeout(r, 0));
           if (videoEncoderError) throw videoEncoderError;
         }
       }
 
-      setExportProgress(0.96);
+      setExportProgress(0.93);
+      setExportEta("Đang flush...");
       await videoEncoder.flush();
       if (videoEncoderError) throw videoEncoderError;
       setExportProgress(0.99);
+      setExportEta("Đang đóng gói...");
       muxer.finalize();
       setExportProgress(1.0);
+      setExportEta("");
       await new Promise((r) => setTimeout(r, 200));
 
       const blob = new Blob([target.buffer], { type: "video/mp4" });
@@ -1430,12 +1485,28 @@ export default function App() {
           </span>
         )}
 
+        {/* Quality selector */}
+        <div className="flex items-center gap-0.5 bg-white/5 rounded-lg p-0.5 border border-white/10 shrink-0">
+          {(["fast", "normal", "high"] as ExportQuality[]).map((q) => (
+            <button
+              key={q}
+              onClick={() => { setExportQuality(q); localStorage.setItem("lv_exportQuality", q); }}
+              disabled={isExporting}
+              title={q === "fast" ? "480p · 2Mbps · nhanh" : q === "normal" ? "720p · 5Mbps · cân bằng" : "1080p · 8Mbps · chất lượng cao"}
+              className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all disabled:cursor-not-allowed
+                ${exportQuality === q ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"}`}
+            >
+              {q === "fast" ? "Nhanh" : q === "normal" ? "Chuẩn" : "Cao"}
+            </button>
+          ))}
+        </div>
+
         {/* Export buttons */}
         {/* WebM */}
         <button
           onClick={() => { setExportError(null); handleExportVideoWebm("webm"); }}
           disabled={!isReady || lyricsLines.length === 0 || isExporting}
-          title="Xuất WebM — VP9+Opus, offline rendering, phát được trong Chrome/Firefox/VLC"
+          title="Xuất WebM — VP8+Opus, offline rendering, phát được trong Chrome/Firefox/VLC"
           className="relative h-[38px] px-4 rounded-lg flex items-center gap-1.5 font-semibold text-xs transition-all shrink-0
             border border-violet-500/40 text-violet-300
             hover:bg-violet-500/10 hover:border-violet-400/60
@@ -1445,7 +1516,7 @@ export default function App() {
             <>
               <span className="absolute inset-0 bg-violet-500/20 origin-left" style={{ transform: `scaleX(${exportProgress})`, transition: "transform 0.4s linear" }} />
               <Loader2 className="w-3 h-3 animate-spin relative z-10" />
-              <span className="relative z-10">{Math.round(exportProgress * 100)}%</span>
+              <span className="relative z-10">{Math.round(exportProgress * 100)}%{exportEta ? ` ${exportEta}` : ""}</span>
             </>
           ) : (
             <><Download className="w-3 h-3" />WebM</>
@@ -1455,7 +1526,7 @@ export default function App() {
         <button
           onClick={() => { setExportError(null); handleExportVideoWebm("mkv"); }}
           disabled={!isReady || lyricsLines.length === 0 || isExporting}
-          title="Xuất MKV — VP9+Opus, cực ít lỗi codec, tương thích VLC/DaVinci/Premiere"
+          title="Xuất MKV — VP8+Opus, Matroska container, tương thích VLC/DaVinci/Premiere"
           className="relative h-[38px] px-4 rounded-lg flex items-center gap-1.5 font-semibold text-xs transition-all shrink-0
             border border-sky-500/40 text-sky-300
             hover:bg-sky-500/10 hover:border-sky-400/60
@@ -1465,7 +1536,7 @@ export default function App() {
             <>
               <span className="absolute inset-0 bg-sky-500/20 origin-left" style={{ transform: `scaleX(${exportProgress})`, transition: "transform 0.4s linear" }} />
               <Loader2 className="w-3 h-3 animate-spin relative z-10" />
-              <span className="relative z-10">{Math.round(exportProgress * 100)}%</span>
+              <span className="relative z-10">{Math.round(exportProgress * 100)}%{exportEta ? ` ${exportEta}` : ""}</span>
             </>
           ) : (
             <><Download className="w-3 h-3" />MKV</>
@@ -1486,7 +1557,7 @@ export default function App() {
             <>
               <span className="absolute inset-0 bg-white/15 origin-left" style={{ transform: `scaleX(${exportProgress})`, transition: "transform 0.4s linear" }} />
               <Loader2 className="w-3 h-3 animate-spin relative z-10" />
-              <span className="relative z-10">{Math.round(exportProgress * 100)}%</span>
+              <span className="relative z-10">{Math.round(exportProgress * 100)}%{exportEta ? ` ${exportEta}` : ""}</span>
             </>
           ) : (
             <><Download className="w-3 h-3" />MOV</>
