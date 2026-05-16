@@ -2132,7 +2132,7 @@ export default function App() {
                   </button>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-white/80 truncate">
-                      {audioFile?.name.replace(/\.[^/.]+$/, "")}
+                      {songTitle || audioFile?.name.replace(/\.[^/.]+$/, "")}
                     </p>
                     <p className="text-xs text-white/35 mt-0.5 font-mono">
                       {formatTime(currentTime)}
