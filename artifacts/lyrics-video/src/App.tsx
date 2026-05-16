@@ -687,7 +687,11 @@ export default function App() {
   ) => {
     const manualLines = lyricsText.split("\n").map((l) => l.trim()).filter(Boolean);
 
-    if (keepManual && manualLines.length > 0 && geminiLines.length > 0) {
+    // Auto spell-check: if user has typed lyrics on the left, always use them
+    // as the authoritative text and only take timestamps from Gemini
+    const useManual = keepManual || manualLines.length > 0;
+
+    if (useManual && manualLines.length > 0 && geminiLines.length > 0) {
       // Keep user's typed text; assign Gemini timestamps line-by-line
       const avgDur =
         geminiLines.length > 1
