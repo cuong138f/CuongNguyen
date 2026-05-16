@@ -60,11 +60,30 @@ Output the JSON array now:
 // Files ≤ this size can be sent inline (Gemini inlineData limit)
 const INLINE_LIMIT_BYTES = 4 * 1024 * 1024; // 4 MB
 
+const SYNC_PROMPT = (lyrics: string[]) =>
+  `You are an expert music synchronization assistant. Listen to the audio and find the precise timestamp for each lyric line listed below.
+
+EXACT LYRICS (${lyrics.length} lines, in order):
+${lyrics.map((l, i) => `${i + 1}. ${l}`).join("\n")}
+
+RETURN FORMAT: A JSON array only — no markdown, no code blocks, no comments.
+Rules:
+- Copy each line's text VERBATIM from the input (do NOT change spelling, punctuation, or wording)
+- "start": exact second when the singer's voice BEGINS this line
+- "end": exact second when the singer's voice STOPS on the last syllable (NOT when the next line starts)
+- Times must be numbers with 1 decimal place (e.g. 12.3)
+- Output exactly ${lyrics.length} entries in the same order as the input
+- Each entry: { "text": "<verbatim line>", "start": <seconds>, "end": <seconds> }
+- "end" must be strictly greater than "start"; typical line duration is 1.5–8 seconds
+
+Output the JSON array now:`.trim();
+
 router.post("/transcribe-audio", async (req, res) => {
-  const { audioBase64, mimeType: rawMimeType, customPrompt } = req.body as {
+  const { audioBase64, mimeType: rawMimeType, customPrompt, knownLyrics } = req.body as {
     audioBase64?: string;
     mimeType?: string;
     customPrompt?: string;
+    knownLyrics?: string[];
   };
 
   if (!audioBase64 || !rawMimeType) {
@@ -82,8 +101,18 @@ router.post("/transcribe-audio", async (req, res) => {
   const ai = new GoogleGenAI({ apiKey });
   const audioBuffer = Buffer.from(audioBase64, "base64");
 
-  const activePrompt = (customPrompt?.trim()) || PROMPT;
-  req.log.info({ rawMimeType, mimeType, bytes: audioBuffer.byteLength, usingCustomPrompt: !!customPrompt?.trim() }, "Starting transcription");
+  const validKnownLyrics = Array.isArray(knownLyrics) && knownLyrics.length > 0
+    ? knownLyrics.map((l) => String(l).trim()).filter(Boolean)
+    : null;
+
+  const activePrompt = validKnownLyrics
+    ? SYNC_PROMPT(validKnownLyrics)
+    : (customPrompt?.trim()) || PROMPT;
+
+  req.log.info(
+    { rawMimeType, mimeType, bytes: audioBuffer.byteLength, syncMode: !!validKnownLyrics, usingCustomPrompt: !!customPrompt?.trim() },
+    "Starting transcription"
+  );
 
   let rawText = "";
 
@@ -173,6 +202,12 @@ router.post("/transcribe-audio", async (req, res) => {
 
   // Sort by start time
   lines.sort((a, b) => a.start - b.start);
+
+  // In sync mode: overwrite Gemini's text with the user's verbatim lines (in order)
+  // to guarantee the returned text is exactly what the user typed.
+  if (validKnownLyrics && lines.length === validKnownLyrics.length) {
+    lines = lines.map((line, i) => ({ ...line, text: validKnownLyrics[i] }));
+  }
 
   // Sanity-cap lines whose duration is suspiciously long
   const MAX_NATURAL_DURATION = 10;

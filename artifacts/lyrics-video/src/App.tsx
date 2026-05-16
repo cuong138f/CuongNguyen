@@ -737,9 +737,22 @@ export default function App() {
     keepManual = false,
   ) => {
     if (keepManual) {
-      // "Đồng bộ" mode: keep user's typed text, distribute Gemini timestamps
-      // proportionally by character length across Gemini's detected time range.
       const manualLines = lyricsText.split("\n").map((l) => l.trim()).filter(Boolean);
+
+      // Best case: server sent back per-line timestamps for each of our lines
+      // (sync mode — line count matches). Use them directly.
+      if (manualLines.length > 0 && geminiLines.length === manualLines.length) {
+        const synced = manualLines.map((text, i) => ({
+          text,
+          start: geminiLines[i].start,
+          end:   geminiLines[i].end,
+        }));
+        setLyricsLines(synced);
+        return;
+      }
+
+      // Fallback: line count mismatch — distribute Gemini's overall time range
+      // proportionally across user's lines by character length.
       if (manualLines.length > 0 && geminiLines.length > 0) {
         const rangeStart = geminiLines[0].start;
         const rangeEnd   = geminiLines[geminiLines.length - 1].end;
@@ -775,9 +788,13 @@ export default function App() {
 
     const cacheKey = getAudioCacheKey(audioFile);
 
+    // Sync mode always calls the API fresh (lyrics-specific, can't reuse free-form cache)
+    const manualLines = lyricsText.split("\n").map((l) => l.trim()).filter(Boolean);
+    const useSyncMode = keepManual && manualLines.length > 0;
+
     try {
-      // Check cache first (unless force refresh)
-      if (!forceRefresh) {
+      // Check cache first (unless force refresh or sync mode)
+      if (!forceRefresh && !useSyncMode) {
         const cached = localStorage.getItem(cacheKey);
         if (cached) {
           const lines = JSON.parse(cached) as { text: string; start: number; end: number }[];
@@ -808,7 +825,11 @@ export default function App() {
         body: JSON.stringify({
           audioBase64,
           mimeType,
-          customPrompt: customPrompt.trim() !== DEFAULT_PROMPT.trim() ? customPrompt.trim() : undefined,
+          // Sync mode: send user's lyrics so AI only produces timestamps, not new text
+          ...(useSyncMode
+            ? { knownLyrics: manualLines }
+            : { customPrompt: customPrompt.trim() !== DEFAULT_PROMPT.trim() ? customPrompt.trim() : undefined }
+          ),
         }),
       });
 
