@@ -914,8 +914,14 @@ export default function App() {
       form.append("audio", fileToSend, fileToSend.name);
       if (useSyncMode) {
         form.append("knownLyrics", JSON.stringify(lyricOnlyLines));
-      } else if (customPrompt.trim() !== DEFAULT_PROMPT.trim()) {
-        form.append("customPrompt", customPrompt.trim());
+      } else {
+        if (customPrompt.trim() !== DEFAULT_PROMPT.trim()) {
+          form.append("customPrompt", customPrompt.trim());
+        }
+        // Always attach lyrics as hint so Gemini knows the expected words/spelling
+        if (lyricOnlyLines.length > 0) {
+          form.append("hintLyrics", JSON.stringify(lyricOnlyLines));
+        }
       }
 
       const res = await fetch("/api/transcribe-audio", {

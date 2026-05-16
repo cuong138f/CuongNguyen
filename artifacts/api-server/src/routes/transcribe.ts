@@ -93,6 +93,7 @@ router.post("/transcribe-audio", upload.single("audio"), async (req, res) => {
   let rawMimeType: string;
   let customPrompt: string | undefined;
   let knownLyrics: string[] | undefined;
+  let hintLyrics: string[] | undefined;
 
   if (req.file) {
     // Multipart upload
@@ -103,6 +104,10 @@ router.post("/transcribe-audio", upload.single("audio"), async (req, res) => {
     if (kl) {
       try { knownLyrics = JSON.parse(kl) as string[]; } catch { /* ignore */ }
     }
+    const hl = req.body.hintLyrics as string | undefined;
+    if (hl) {
+      try { hintLyrics = JSON.parse(hl) as string[]; } catch { /* ignore */ }
+    }
   } else {
     // Legacy JSON body fallback
     const body = req.body as {
@@ -110,6 +115,7 @@ router.post("/transcribe-audio", upload.single("audio"), async (req, res) => {
       mimeType?: string;
       customPrompt?: string;
       knownLyrics?: string[];
+      hintLyrics?: string[];
     };
     if (!body.audioBase64 || !body.mimeType) {
       res.status(400).json({ error: "Provide audio via multipart 'audio' field or legacy audioBase64+mimeType JSON" });
@@ -119,6 +125,7 @@ router.post("/transcribe-audio", upload.single("audio"), async (req, res) => {
     rawMimeType  = body.mimeType;
     customPrompt = body.customPrompt;
     knownLyrics  = body.knownLyrics;
+    hintLyrics   = body.hintLyrics;
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
@@ -134,12 +141,22 @@ router.post("/transcribe-audio", upload.single("audio"), async (req, res) => {
     ? knownLyrics.map((l) => String(l).trim()).filter(Boolean)
     : null;
 
-  const activePrompt = validKnownLyrics
+  const validHintLyrics = !validKnownLyrics && Array.isArray(hintLyrics) && hintLyrics.length > 0
+    ? hintLyrics.map((l) => String(l).trim()).filter(Boolean)
+    : null;
+
+  const basePrompt = validKnownLyrics
     ? SYNC_PROMPT(validKnownLyrics)
     : (customPrompt?.trim()) || PROMPT;
 
+  // Append hint lyrics to the bottom of the free-mode prompt so Gemini knows
+  // the expected wording/spelling — helps with Vietnamese diacritics accuracy.
+  const activePrompt = validHintLyrics
+    ? `${basePrompt}\n\nGỢI Ý LỜI BÀI HÁT (tham khảo chính tả — ${validHintLyrics.length} dòng, theo thứ tự xuất hiện trong bài):\n${validHintLyrics.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nLưu ý: Đây chỉ là gợi ý chính tả. Hãy tự xác định timestamp thật từ audio — không sao chép timestamp từ bất kỳ nguồn nào khác.`
+    : basePrompt;
+
   req.log.info(
-    { rawMimeType, mimeType, bytes: audioBuffer.byteLength, syncMode: !!validKnownLyrics, usingCustomPrompt: !!customPrompt?.trim() },
+    { rawMimeType, mimeType, bytes: audioBuffer.byteLength, syncMode: !!validKnownLyrics, hasHint: !!validHintLyrics, hintLines: validHintLyrics?.length, usingCustomPrompt: !!customPrompt?.trim() },
     "Starting transcription"
   );
 
