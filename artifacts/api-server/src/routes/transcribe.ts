@@ -57,9 +57,10 @@ Output the JSON array now:
 const INLINE_LIMIT_BYTES = 4 * 1024 * 1024; // 4 MB
 
 router.post("/transcribe-audio", async (req, res) => {
-  const { audioBase64, mimeType: rawMimeType } = req.body as {
+  const { audioBase64, mimeType: rawMimeType, customPrompt } = req.body as {
     audioBase64?: string;
     mimeType?: string;
+    customPrompt?: string;
   };
 
   if (!audioBase64 || !rawMimeType) {
@@ -77,7 +78,8 @@ router.post("/transcribe-audio", async (req, res) => {
   const ai = new GoogleGenAI({ apiKey });
   const audioBuffer = Buffer.from(audioBase64, "base64");
 
-  req.log.info({ rawMimeType, mimeType, bytes: audioBuffer.byteLength }, "Starting transcription");
+  const activePrompt = (customPrompt?.trim()) || PROMPT;
+  req.log.info({ rawMimeType, mimeType, bytes: audioBuffer.byteLength, usingCustomPrompt: !!customPrompt?.trim() }, "Starting transcription");
 
   let rawText = "";
 
@@ -89,7 +91,7 @@ router.post("/transcribe-audio", async (req, res) => {
         contents: [{
           parts: [
             { inlineData: { mimeType, data: audioBase64 } },
-            { text: PROMPT },
+            { text: activePrompt },
           ],
         }],
         config: { temperature: 0 },
@@ -134,7 +136,7 @@ router.post("/transcribe-audio", async (req, res) => {
         contents: [{
           parts: [
             { fileData: { fileUri: fileInfo.uri, mimeType } },
-            { text: PROMPT },
+            { text: activePrompt },
           ],
         }],
         config: { temperature: 0 },

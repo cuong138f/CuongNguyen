@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import WaveSurfer from "wavesurfer.js";
-import { Music, Image, Play, Pause, Wand2, SkipBack, Upload, Loader2, Sparkles, Pencil, Check, X, Download, Scissors, Trash2 } from "lucide-react";
+import { Music, Image, Play, Pause, Wand2, SkipBack, Upload, Loader2, Sparkles, Pencil, Check, X, Download, Scissors, Trash2, ChevronDown } from "lucide-react";
 
 interface LyricLine {
   text: string;
@@ -20,6 +20,38 @@ function formatTimeFull(s: number) {
   const secStr = (s % 60).toFixed(1).padStart(4, "0");
   return `${m}:${secStr}`;
 }
+
+const DEFAULT_PROMPT = `You are an expert music lyrics transcription assistant. Your task is to listen to the ENTIRE audio file from beginning to end and produce a precise, complete timestamped transcript of ALL sung lyrics.
+
+RETURN FORMAT: A JSON array only — no markdown, no code blocks, no comments, no explanations.
+Each object: { "text": "<lyric line>", "start": <seconds>, "end": <seconds> }
+- "start": exact second when the singer's voice begins this line
+- "end": exact second when the singer's voice stops on the last syllable (NOT when the next line starts)
+- Times must be numbers with 1 decimal place precision
+
+CRITICAL RULES — follow every one strictly:
+
+1. SCAN THE ENTIRE AUDIO: Start at 0:00 and work forward to the very last second. Do NOT stop early, do NOT skip the middle or end of the song.
+
+2. EVERY VOCAL LINE MUST BE INCLUDED: Include verse lines, chorus lines, bridge lines, hooks, ad-libs, background harmonies if they carry distinct lyrics. Missing ANY sung line is an error.
+
+3. REPEATED SECTIONS (chorus/hook): If the same lyrics are sung again later in the song (e.g. the chorus repeats at 1:30, 2:45, and 3:10), you MUST include ALL occurrences as separate entries with their real individual timestamps. Never copy-paste the same timestamps — each occurrence has its own unique start/end.
+
+4. "end" = voice stop, NOT next-line start: If a singer holds a note and stops at 3.8s but the next line begins at 6.0s, "end" = 3.8, not 6.0. Each line's duration (end − start) is typically 1.5–7 seconds.
+
+5. NEVER exceed 10 seconds duration for a single line. Long held notes are still ≤10 s. If a line would be longer, split it at a natural breath point.
+
+6. SKIP ONLY TRUE INSTRUMENTALS: Skip intro/outro/solo/break sections with ZERO vocals. Do NOT skip a section just because you are unsure — transcribe your best estimate.
+
+7. DO NOT INVENT LYRICS: Transcribe what is actually sung. If a word is unclear, write your best phonetic approximation. Do not leave lines empty.
+
+8. TIMESTAMPS MUST INCREASE MONOTONICALLY: Each line's start must be strictly greater than the previous line's end. No overlaps.
+
+9. DO NOT TRUNCATE: Many songs have 30–60+ lyric lines. Output ALL of them. Do not stop after 20–30 lines if the song continues.
+
+Verify your work: before outputting, confirm that your last entry's "start" time is near the end of the audio (within the last 60 seconds), and that your count of lines is plausible for a typical song of that length.
+
+Output the JSON array now:`.trim();
 
 // ── Word-by-word coloring helpers ─────────────────────────────────────────────
 // CSS mask-image gradients bleed across wrapped lines because they apply to the
@@ -460,6 +492,10 @@ export default function App() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
   const [transcribeFromCache, setTranscribeFromCache] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
+  const [customPrompt, setCustomPrompt] = useState<string>(() =>
+    localStorage.getItem("lv_customPrompt") ?? DEFAULT_PROMPT
+  );
   const [lyricEffect, setLyricEffect] = useState<LyricEffectId>(() => {
     const saved = localStorage.getItem("lv_lyricEffect");
     return (saved && ["fade", "slide", "pop", "wipe", "karaoke", "wave"].includes(saved) ? saved : "wipe") as LyricEffectId;
@@ -578,6 +614,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem("lv_lyricStyleId", lyricStyleId); }, [lyricStyleId]);
   useEffect(() => { localStorage.setItem("lv_lyricFontSize", String(lyricFontSize)); }, [lyricFontSize]);
   useEffect(() => { localStorage.setItem("lv_prerollSeconds", String(prerollSeconds)); }, [prerollSeconds]);
+  useEffect(() => { localStorage.setItem("lv_customPrompt", customPrompt); }, [customPrompt]);
 
   const handleCoverUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -702,7 +739,11 @@ export default function App() {
       const res = await fetch("/api/transcribe-audio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audioBase64, mimeType }),
+        body: JSON.stringify({
+          audioBase64,
+          mimeType,
+          customPrompt: customPrompt.trim() !== DEFAULT_PROMPT.trim() ? customPrompt.trim() : undefined,
+        }),
       });
 
       if (!res.ok) {
@@ -1261,6 +1302,42 @@ export default function App() {
               {transcribeError && (
                 <p className="text-[11px] text-red-400/80 leading-relaxed">{transcribeError}</p>
               )}
+
+              {/* Collapsible Prompt editor */}
+              <div className="mt-2">
+                <button
+                  onClick={() => setShowPrompt((v) => !v)}
+                  className="flex items-center gap-1.5 text-[10px] text-white/25 hover:text-violet-400 transition-colors w-full group"
+                >
+                  <ChevronDown
+                    className="w-3 h-3 transition-transform duration-200"
+                    style={{ transform: showPrompt ? "rotate(180deg)" : "rotate(0deg)" }}
+                  />
+                  <span>Prompt gửi Gemini</span>
+                  {customPrompt.trim() !== DEFAULT_PROMPT.trim() && (
+                    <span className="ml-auto text-amber-400/70">đã tuỳ chỉnh</span>
+                  )}
+                </button>
+                {showPrompt && (
+                  <div className="mt-2 space-y-1.5">
+                    <textarea
+                      value={customPrompt}
+                      onChange={(e) => setCustomPrompt(e.target.value)}
+                      rows={10}
+                      spellCheck={false}
+                      className="w-full bg-white/[0.03] border border-white/[0.08] focus:border-violet-500/40 rounded-xl p-3 text-[11px] text-white/60 placeholder-white/20 resize-y outline-none transition-all font-mono leading-relaxed"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setCustomPrompt(DEFAULT_PROMPT)}
+                        className="text-[10px] text-white/25 hover:text-white/50 transition-colors underline underline-offset-2"
+                      >
+                        Khôi phục mặc định
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </section>
 
             {/* Divider */}
