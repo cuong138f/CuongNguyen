@@ -144,8 +144,9 @@ function drawLyricFrame(
   effect: string,
   fontSizePct: number,
   prerollSec = 0,
+  ep: EffectParams = DEFAULT_EFFECT_PARAMS,
 ) {
-  const WIPE_HOLD = 1.5;
+  const WIPE_HOLD = ep.wipeHold;
   ctx.clearRect(0, 0, W, H);
 
   // ── Background ──────────────────────────────────────────────
@@ -206,12 +207,12 @@ function drawLyricFrame(
     ctx.fillText(cLine.text, W / 2, textY);
     ctx.restore();
   } else if (effect === "fade") {
-    ctx.globalAlpha = Math.max(0, 1 - wp);
+    ctx.globalAlpha = Math.max(0, 1 - wp * ep.fadeSpeed);
     ctx.shadowColor = styleColors.glow; ctx.shadowBlur = 28;
     ctx.fillStyle = styleColors.fill;
     ctx.fillText(cLine.text, W / 2, textY);
   } else if (effect === "blur") {
-    const blurPx = (wp * 14).toFixed(1);
+    const blurPx = (wp * ep.blurAmount).toFixed(1);
     ctx.filter = `blur(${blurPx}px)`;
     ctx.globalAlpha = Math.max(0, 1 - wp * 0.85);
     ctx.shadowColor = styleColors.glow; ctx.shadowBlur = 28;
@@ -223,7 +224,7 @@ function drawLyricFrame(
     ctx.fillStyle = styleColors.fill;
     ctx.fillText(cLine.text, W / 2, textY);
     const wW = W * 0.72, wX0 = (W - W * 0.72) / 2;
-    const wY = textY + 18, amp = 9, cycles = 6;
+    const wY = textY + 18, amp = ep.waveAmp, cycles = ep.waveCycles;
     ctx.save();
     ctx.beginPath(); ctx.rect(0, 0, wX0 + wW * lp, H); ctx.clip();
     ctx.beginPath();
@@ -389,6 +390,32 @@ const LYRIC_EFFECTS = [
 ] as const;
 type LyricEffectId = (typeof LYRIC_EFFECTS)[number]["id"];
 
+type EffectParams = {
+  wipeHold: number;    // wipe: seconds to hold before sweeping (0–3, default 1.5)
+  fadeSpeed: number;   // fade: multiplier on fade rate (0.5–3, default 1.0)
+  blurAmount: number;  // blur: max blur px (4–30, default 14)
+  waveAmp: number;     // wave: amplitude px (3–20, default 9)
+  waveCycles: number;  // wave: number of cycles (2–12, default 6)
+};
+const DEFAULT_EFFECT_PARAMS: EffectParams = {
+  wipeHold: 1.5,
+  fadeSpeed: 1.0,
+  blurAmount: 14,
+  waveAmp: 9,
+  waveCycles: 6,
+};
+
+function generateWaveSVGPath(cycles: number, amp: number): string {
+  const W = 400; const midY = 25;
+  let d = `M 0 ${midY}`;
+  for (let i = 1; i <= 120; i++) {
+    const x = (i / 120) * W;
+    const y = midY + Math.sin((i / 120) * Math.PI * 2 * cycles) * amp;
+    d += ` L ${x.toFixed(1)} ${y.toFixed(1)}`;
+  }
+  return d;
+}
+
 // ─── Lyric style presets ────────────────────────────────────────────────────
 const LYRIC_STYLES = [
   {
@@ -507,6 +534,13 @@ export default function App() {
     const saved = localStorage.getItem("lv_lyricEffect");
     return (saved && ["fade", "slide", "pop", "wipe", "karaoke", "wave"].includes(saved) ? saved : "wipe") as LyricEffectId;
   });
+  const [effectParams, setEffectParams] = useState<EffectParams>(() => {
+    try {
+      return { ...DEFAULT_EFFECT_PARAMS, ...JSON.parse(localStorage.getItem("lv_effectParams") ?? "{}") } as EffectParams;
+    } catch { return DEFAULT_EFFECT_PARAMS; }
+  });
+  const setEp = (key: keyof EffectParams, val: number) =>
+    setEffectParams((prev) => ({ ...prev, [key]: val }));
   const [editingLineIndex, setEditingLineIndex] = useState<number | null>(null);
   const [editingText, setEditingText] = useState("");
   const [editingTimeIdx, setEditingTimeIdx] = useState<number | null>(null);
@@ -612,6 +646,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem("lv_lyricsText", JSON.stringify(lyricsText)); }, [lyricsText]);
   useEffect(() => { localStorage.setItem("lv_lyricsLines", JSON.stringify(lyricsLines)); }, [lyricsLines]);
   useEffect(() => { localStorage.setItem("lv_lyricEffect", lyricEffect); }, [lyricEffect]);
+  useEffect(() => { localStorage.setItem("lv_effectParams", JSON.stringify(effectParams)); }, [effectParams]);
   useEffect(() => { localStorage.setItem("lv_lyricStyleId", lyricStyleId); }, [lyricStyleId]);
   useEffect(() => { localStorage.setItem("lv_lyricFontSize", String(lyricFontSize)); }, [lyricFontSize]);
   useEffect(() => { localStorage.setItem("lv_prerollSeconds", String(prerollSeconds)); }, [prerollSeconds]);
@@ -1028,7 +1063,7 @@ export default function App() {
       if (!ws || stopped) return;
       const time = ws.getCurrentTime();
       if (totalDur > 0) setExportProgress(Math.min(1, time / totalDur));
-      drawLyricFrame(ctx, W, H, time, lines, coverImg, styleColors, effect, fontPct, preroll);
+      drawLyricFrame(ctx, W, H, time, lines, coverImg, styleColors, effect, fontPct, preroll, effectParams);
       if (!stopped) animId = requestAnimationFrame(drawFrame);
     };
     animId = requestAnimationFrame(drawFrame);
@@ -1140,7 +1175,7 @@ export default function App() {
       // Render all video frames offline (fast, no real-time dependency)
       for (let fi = 0; fi < totalFrames; fi++) {
         if (videoEncoderError) throw videoEncoderError;
-        drawLyricFrame(ctx, W, H, fi / FPS, lines, coverImg, styleColors, effect, fontPct, preroll);
+        drawLyricFrame(ctx, W, H, fi / FPS, lines, coverImg, styleColors, effect, fontPct, preroll, effectParams);
         const vf = new VideoFrame(canvas, {
           timestamp: Math.round(fi / FPS * 1_000_000),
           duration: Math.round(1_000_000 / FPS),
@@ -1200,18 +1235,17 @@ export default function App() {
       ))
     : 0;
 
-  // Wipe: hold fully-visible for 1.5 s, then sweep the remaining duration
-  const WIPE_HOLD = 1.5;
+  // Wipe: hold fully-visible for wipeHold s, then sweep the remaining duration
   const lineDuration = currentLine ? Math.max(0.001, currentLine.end - currentLine.start) : 1;
-  const wipeProgress = lineDuration > WIPE_HOLD
+  const wipeProgress = lineDuration > effectParams.wipeHold
     ? Math.max(0, Math.min(1,
-        (lineProgress * lineDuration - WIPE_HOLD) / (lineDuration - WIPE_HOLD)
+        (lineProgress * lineDuration - effectParams.wipeHold) / (lineDuration - effectParams.wipeHold)
       ))
     : lineProgress;
 
   // Per-effect opacity target (goes into Framer Motion animate so it wins)
   const effectOpacity =
-    lyricEffect === "fade" ? Math.max(0, 1 - wipeProgress)
+    lyricEffect === "fade" ? Math.max(0, 1 - wipeProgress * effectParams.fadeSpeed)
     : lyricEffect === "wave" ? 1
     : lyricEffect === "blur" ? Math.max(0, 1 - wipeProgress * 0.85)
     : 1;
@@ -1219,7 +1253,7 @@ export default function App() {
   // Per-effect CSS filter (safe in style — not in animate, so no conflict)
   const effectFilter =
     lyricEffect === "blur"
-      ? `blur(${(wipeProgress * 14).toFixed(1)}px) saturate(${Math.max(0, 1 - wipeProgress * 0.6).toFixed(2)})`
+      ? `blur(${(wipeProgress * effectParams.blurAmount).toFixed(1)}px) saturate(${Math.max(0, 1 - wipeProgress * 0.6).toFixed(2)})`
       : undefined;
 
   // Next line grows from small/dim → big/bright during the last 28% of the current line
@@ -1757,13 +1791,13 @@ export default function App() {
                               </p>
                               {/* SVG wave that draws left→right with lineProgress */}
                               <svg
-                                viewBox="0 0 400 22"
-                                style={{ width: "88%", height: "22px", overflow: "visible", display: "block" }}
+                                viewBox={`0 0 400 ${(effectParams.waveAmp * 2) + 10}`}
+                                style={{ width: "88%", height: `${Math.max(22, effectParams.waveAmp * 2 + 10)}px`, overflow: "visible", display: "block" }}
                                 preserveAspectRatio="none"
                               >
                                 <motion.path
-                                  key={`wave-${currentLineIndex}`}
-                                  d="M 0 11 C 25 3, 50 19, 75 11 C 100 3, 125 19, 150 11 C 175 3, 200 19, 225 11 C 250 3, 275 19, 300 11 C 325 3, 350 19, 375 11 C 387 5, 395 14, 400 11"
+                                  key={`wave-${currentLineIndex}-${effectParams.waveAmp}-${effectParams.waveCycles}`}
+                                  d={generateWaveSVGPath(effectParams.waveCycles, effectParams.waveAmp)}
                                   fill="none"
                                   stroke={activeStyle.dot}
                                   strokeWidth="3.5"
@@ -1964,6 +1998,74 @@ export default function App() {
                   ))}
                 </div>
               </div>
+
+              {/* Effect-specific params */}
+              {lyricEffect === "wipe" && (
+                <>
+                  <div className="h-5 w-px bg-white/[0.06] shrink-0" />
+                  <div className="flex items-center gap-2">
+                    <p className="text-[9px] font-semibold uppercase tracking-widest text-white/30 shrink-0">Giữ</p>
+                    <input type="range" min={0} max={3} step={0.1} value={effectParams.wipeHold}
+                      onChange={(e) => setEp("wipeHold", Number(e.target.value))}
+                      className="w-20 h-1.5 rounded-full appearance-none cursor-pointer"
+                      style={{ accentColor: "#8B5CF6" }}
+                    />
+                    <span className="text-[9px] font-mono text-violet-400/70 w-8 shrink-0">{effectParams.wipeHold.toFixed(1)}s</span>
+                  </div>
+                </>
+              )}
+              {lyricEffect === "fade" && (
+                <>
+                  <div className="h-5 w-px bg-white/[0.06] shrink-0" />
+                  <div className="flex items-center gap-2">
+                    <p className="text-[9px] font-semibold uppercase tracking-widest text-white/30 shrink-0">Tốc độ mờ</p>
+                    <input type="range" min={0.3} max={3} step={0.1} value={effectParams.fadeSpeed}
+                      onChange={(e) => setEp("fadeSpeed", Number(e.target.value))}
+                      className="w-20 h-1.5 rounded-full appearance-none cursor-pointer"
+                      style={{ accentColor: "#8B5CF6" }}
+                    />
+                    <span className="text-[9px] font-mono text-violet-400/70 w-8 shrink-0">{effectParams.fadeSpeed.toFixed(1)}×</span>
+                  </div>
+                </>
+              )}
+              {lyricEffect === "blur" && (
+                <>
+                  <div className="h-5 w-px bg-white/[0.06] shrink-0" />
+                  <div className="flex items-center gap-2">
+                    <p className="text-[9px] font-semibold uppercase tracking-widest text-white/30 shrink-0">Mờ tối đa</p>
+                    <input type="range" min={4} max={30} step={1} value={effectParams.blurAmount}
+                      onChange={(e) => setEp("blurAmount", Number(e.target.value))}
+                      className="w-20 h-1.5 rounded-full appearance-none cursor-pointer"
+                      style={{ accentColor: "#8B5CF6" }}
+                    />
+                    <span className="text-[9px] font-mono text-violet-400/70 w-8 shrink-0">{effectParams.blurAmount}px</span>
+                  </div>
+                </>
+              )}
+              {lyricEffect === "wave" && (
+                <>
+                  <div className="h-5 w-px bg-white/[0.06] shrink-0" />
+                  <div className="flex items-center gap-2">
+                    <p className="text-[9px] font-semibold uppercase tracking-widest text-white/30 shrink-0">Biên độ</p>
+                    <input type="range" min={3} max={20} step={1} value={effectParams.waveAmp}
+                      onChange={(e) => setEp("waveAmp", Number(e.target.value))}
+                      className="w-20 h-1.5 rounded-full appearance-none cursor-pointer"
+                      style={{ accentColor: "#8B5CF6" }}
+                    />
+                    <span className="text-[9px] font-mono text-violet-400/70 w-6 shrink-0">{effectParams.waveAmp}</span>
+                  </div>
+                  <div className="h-5 w-px bg-white/[0.06] shrink-0" />
+                  <div className="flex items-center gap-2">
+                    <p className="text-[9px] font-semibold uppercase tracking-widest text-white/30 shrink-0">Chu kỳ</p>
+                    <input type="range" min={2} max={12} step={1} value={effectParams.waveCycles}
+                      onChange={(e) => setEp("waveCycles", Number(e.target.value))}
+                      className="w-20 h-1.5 rounded-full appearance-none cursor-pointer"
+                      style={{ accentColor: "#8B5CF6" }}
+                    />
+                    <span className="text-[9px] font-mono text-violet-400/70 w-6 shrink-0">{effectParams.waveCycles}</span>
+                  </div>
+                </>
+              )}
 
               <div className="h-5 w-px bg-white/[0.06] shrink-0" />
 
