@@ -16,7 +16,7 @@ A client-side React + Vite app that turns lyrics + music into animated karaoke-s
 - Frontend: React + Vite + Tailwind CSS v4 + Framer Motion + shadcn/ui + wavesurfer.js v7
 - Backend: Express 5 (API server for transcription only)
 - DB: PostgreSQL + Drizzle ORM (minimal, mostly stateless)
-- Video export: WebCodecs API + mp4-muxer v5.2.2
+- Video export: WebCodecs API + webm-muxer (VP9+Opus → WebM/MKV) + mp4-muxer (H.264+AAC → MOV)
 
 ## Where things live
 

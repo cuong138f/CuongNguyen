@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import WaveSurfer from "wavesurfer.js";
-import fixWebmDuration from "fix-webm-duration";
 import { Music, Image, Play, Pause, Wand2, SkipBack, Upload, Loader2, Sparkles, Pencil, Check, X, Download, Scissors, Trash2, ChevronDown } from "lucide-react";
 
 interface LyricLine {
@@ -550,7 +549,7 @@ export default function App() {
   const [editingDurVal, setEditingDurVal] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [exportingFormat, setExportingFormat] = useState<"webm" | "mp4">("webm");
+  const [exportingFormat, setExportingFormat] = useState<"webm" | "mkv" | "mov">("webm");
   const [exportProgress, setExportProgress] = useState(0);
   const [exportError, setExportError] = useState<string | null>(null);
   const [lyricStyleId, setLyricStyleId] = useState<LyricStyleId>(() => {
@@ -569,8 +568,6 @@ export default function App() {
   const waveformRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
   const lyricsViewRef = useRef<HTMLDivElement>(null);
-  const captureAudioCtxRef = useRef<AudioContext | null>(null);
-  const captureAudioDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
 
   useEffect(() => {
     if (!waveformRef.current || !audioUrl) return;
@@ -962,132 +959,151 @@ export default function App() {
     e.target.value = "";
   };
 
-  const handleExportVideo = async () => {
-    if (!wavesurferRef.current || !isReady) return;
-    setIsExporting(true);
-    setExportProgress(0);
-
-    const W = 1280, H = 720;
-    const canvas = document.createElement("canvas");
-    canvas.width = W; canvas.height = H;
-    const ctx = canvas.getContext("2d")!;
-
-    // Audio capture via AudioContext (more reliable than captureStream on <audio>)
-    const mediaEl = wavesurferRef.current.getMediaElement();
-    const canvasStream = canvas.captureStream(30);
-    let audioTracks: MediaStreamTrack[] = [];
-    try {
-      if (!captureAudioCtxRef.current || captureAudioCtxRef.current.state === "closed") {
-        captureAudioCtxRef.current = new AudioContext();
-        captureAudioDestRef.current = null;
-      }
-      const ctx = captureAudioCtxRef.current;
-      if (ctx.state === "suspended") await ctx.resume();
-      if (!captureAudioDestRef.current) {
-        const dest = ctx.createMediaStreamDestination();
-        const src = ctx.createMediaElementSource(mediaEl);
-        src.connect(dest);
-        src.connect(ctx.destination); // keep playing to speakers during export
-        captureAudioDestRef.current = dest;
-      }
-      audioTracks = captureAudioDestRef.current.stream.getAudioTracks();
-    } catch {
-      // Fallback: captureStream (less reliable on <audio> but better than silence)
-      const mediaElFallback = mediaEl as HTMLMediaElement & {
-        captureStream?: () => MediaStream;
-        mozCaptureStream?: () => MediaStream;
-      };
-      const s = mediaElFallback.captureStream?.() ?? mediaElFallback.mozCaptureStream?.();
-      audioTracks = s?.getAudioTracks() ?? [];
-    }
-    const combined = audioTracks.length > 0
-      ? new MediaStream([...canvasStream.getVideoTracks(), ...audioTracks])
-      : canvasStream;
-
-    const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
-      ? "video/webm;codecs=vp9" : "video/webm";
-    const recorder = new MediaRecorder(combined, { mimeType, videoBitsPerSecond: 6_000_000 });
-    const chunks: BlobPart[] = [];
-    let recordStartTime = 0;
-    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-    recorder.onstop = async () => {
-      const durationMs = Date.now() - recordStartTime;
-      const rawBlob = new Blob(chunks, { type: mimeType });
-      const blob = await fixWebmDuration(rawBlob, durationMs, { logger: false });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = (audioFile?.name.replace(/\.[^/.]+$/, "") ?? "lyrics-video") + ".webm";
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
-      setIsExporting(false);
-      setExportProgress(0);
-    };
-
-    // Snapshot style + effect at export time
-    const styleColors = CANVAS_COLORS[lyricStyleId] ?? CANVAS_COLORS.purple;
-    const effect = lyricEffect;
-    const WIPE_HOLD_EXP = 1.5;
-
-    // Preload cover image
-    let coverImg: HTMLImageElement | null = null;
-    if (coverImage) {
-      coverImg = new window.Image();
-      coverImg.src = coverImage;
-      await new Promise<void>((r) => { coverImg!.onload = r; coverImg!.onerror = r; });
-    }
-
-    const lines = lyricsLines;
-    const totalDur = wavesurferRef.current.getDuration();
-    wavesurferRef.current.seekTo(0);
-    await new Promise((r) => setTimeout(r, 100));
-    recordStartTime = Date.now();
-    recorder.start(200);
-    wavesurferRef.current.play();
-
-    let animId: number;
-    let stopped = false;
-
-    const stop = () => {
-      if (stopped) return;
-      stopped = true;
-      cancelAnimationFrame(animId);
-      setTimeout(() => recorder.stop(), 400);
-    };
-    wavesurferRef.current.once("finish", stop);
-
-    const fontPct = lyricFontSize;
-    const preroll = prerollSeconds;
-    const drawFrame = () => {
-      const ws = wavesurferRef.current;
-      if (!ws || stopped) return;
-      const time = ws.getCurrentTime();
-      if (totalDur > 0) setExportProgress(Math.min(1, time / totalDur));
-      drawLyricFrame(ctx, W, H, time, lines, coverImg, styleColors, effect, fontPct, preroll, effectParams);
-      if (!stopped) animId = requestAnimationFrame(drawFrame);
-    };
-    animId = requestAnimationFrame(drawFrame);
-  };
-
-  // ── MP4 export: offline rendering via WebCodecs + mp4-muxer ──────────────
-  const handleExportVideoMp4 = async () => {
+  // ── WebM / MKV export: offline rendering via WebCodecs + webm-muxer (VP9+Opus) ──
+  const handleExportVideoWebm = async (fmt: "webm" | "mkv") => {
     if (!isReady || lyricsLines.length === 0) return;
     setExportError(null);
 
-    // WebCodecs availability check
     if (typeof VideoEncoder === "undefined") {
-      setExportError("MP4 cần Chrome 94+ / Edge 94+. Hãy dùng WebM.");
+      setExportError("Cần Chrome 94+ / Edge 94+ để xuất video.");
+      return;
+    }
+
+    setExportingFormat(fmt);
+    setIsExporting(true);
+    setExportProgress(0);
+
+    try {
+      const W = 1280, H = 720, FPS = 30;
+      const canvas = document.createElement("canvas");
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext("2d")!;
+
+      const styleColors = CANVAS_COLORS[lyricStyleId] ?? CANVAS_COLORS.purple;
+      const effect = lyricEffect;
+      const fontPct = lyricFontSize;
+      const preroll = prerollSeconds;
+      const lines = lyricsLines;
+      const totalDur = duration || (lines.length > 0 ? lines[lines.length - 1].end + 2 : 60);
+      const totalFrames = Math.ceil(totalDur * FPS);
+
+      let coverImg: HTMLImageElement | null = null;
+      if (coverImage) {
+        coverImg = new window.Image();
+        coverImg.src = coverImage;
+        await new Promise<void>((r) => { coverImg!.onload = r; coverImg!.onerror = r; });
+      }
+
+      const { Muxer, ArrayBufferTarget } = await import("webm-muxer");
+      const target = new ArrayBufferTarget();
+      const hasAudio = !!audioFile && typeof AudioEncoder !== "undefined";
+      const muxer = new Muxer({
+        target,
+        video: { codec: "V_VP9", width: W, height: H, frameRate: FPS },
+        ...(hasAudio ? { audio: { codec: "A_OPUS", sampleRate: 44100, numberOfChannels: 2, bitDepth: 32 } } : {}),
+      });
+
+      let videoEncoderError: Error | null = null;
+      const videoEncoder = new VideoEncoder({
+        output: (chunk, meta) => muxer.addVideoChunk(chunk, meta!),
+        error: (e) => { videoEncoderError = e; },
+      });
+      videoEncoder.configure({
+        codec: "vp09.00.10.08",
+        width: W, height: H,
+        bitrate: 5_000_000,
+        framerate: FPS,
+        latencyMode: "quality",
+        hardwareAcceleration: "prefer-software",
+      });
+
+      if (hasAudio && audioFile) {
+        let audioEncoderError: Error | null = null;
+        const audioEncoder = new AudioEncoder({
+          output: (chunk, meta) => muxer.addAudioChunk(chunk, meta!),
+          error: (e) => { audioEncoderError = e; },
+        });
+        audioEncoder.configure({ codec: "opus", sampleRate: 44100, numberOfChannels: 2, bitrate: 128_000 });
+
+        const arrayBuf = await audioFile.arrayBuffer();
+        const audioCtx = new AudioContext({ sampleRate: 44100 });
+        const decoded = await audioCtx.decodeAudioData(arrayBuf);
+        await audioCtx.close();
+
+        const CHUNK = 4096;
+        const numCh = Math.min(decoded.numberOfChannels, 2);
+        for (let i = 0; i < decoded.length; i += CHUNK) {
+          const n = Math.min(CHUNK, decoded.length - i);
+          const data = new Float32Array(numCh * n);
+          for (let ch = 0; ch < numCh; ch++) {
+            const src = decoded.getChannelData(ch);
+            for (let j = 0; j < n; j++) data[ch * n + j] = src[i + j];
+          }
+          const ad = new AudioData({
+            format: "f32-planar", sampleRate: 44100,
+            numberOfFrames: n, numberOfChannels: numCh,
+            timestamp: Math.round(i / decoded.sampleRate * 1_000_000), data,
+          });
+          audioEncoder.encode(ad);
+          ad.close();
+        }
+        await audioEncoder.flush();
+        if (audioEncoderError) throw audioEncoderError;
+      }
+
+      for (let fi = 0; fi < totalFrames; fi++) {
+        if (videoEncoderError) throw videoEncoderError;
+        drawLyricFrame(ctx, W, H, fi / FPS, lines, coverImg, styleColors, effect, fontPct, preroll, effectParams);
+        const vf = new VideoFrame(canvas, {
+          timestamp: Math.round(fi / FPS * 1_000_000),
+          duration: Math.round(1_000_000 / FPS),
+        });
+        videoEncoder.encode(vf, { keyFrame: fi % 90 === 0 });
+        vf.close();
+        if (fi % 30 === 0) {
+          setExportProgress(fi / totalFrames * 0.95);
+          await new Promise((r) => setTimeout(r, 0));
+          if (videoEncoderError) throw videoEncoderError;
+        }
+      }
+
+      setExportProgress(0.97);
+      await videoEncoder.flush();
+      if (videoEncoderError) throw videoEncoderError;
+      muxer.finalize();
+
+      const mimeType = fmt === "mkv" ? "video/x-matroska" : "video/webm";
+      const blob = new Blob([target.buffer], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = (audioFile?.name.replace(/\.[^/.]+$/, "") ?? "lyrics-video") + "." + fmt;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setExportError(`Xuất ${fmt.toUpperCase()} thất bại: ${msg.slice(0, 120)}`);
+    } finally {
+      setIsExporting(false);
+      setExportProgress(0);
+    }
+  };
+
+  // ── MOV export: offline rendering via WebCodecs + mp4-muxer (H.264+AAC) ──
+  const handleExportVideoMov = async () => {
+    if (!isReady || lyricsLines.length === 0) return;
+    setExportError(null);
+
+    if (typeof VideoEncoder === "undefined") {
+      setExportError("Cần Chrome 94+ / Edge 94+ để xuất video.");
       return;
     }
 
     const W = 1280, H = 720, FPS = 30;
-    const CODEC_VIDEO = "avc1.42E01E"; // H.264 Baseline 3.0 — widest support
+    const CODEC_VIDEO = "avc1.42E01E"; // H.264 Baseline 3.0
 
-    // Note: isConfigSupported() often returns false in sandboxed iframes even when
-    // encoding works fine — we skip it and let the actual VideoEncoder.configure()
-    // throw if the codec is truly unsupported.
-
-    setExportingFormat("mp4");
+    setExportingFormat("mov");
     setIsExporting(true);
     setExportProgress(0);
 
@@ -1194,17 +1210,17 @@ export default function App() {
       if (videoEncoderError) throw videoEncoderError;
       muxer.finalize();
 
-      const blob = new Blob([target.buffer], { type: "video/mp4" });
+      const blob = new Blob([target.buffer], { type: "video/quicktime" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = (audioFile?.name.replace(/\.[^/.]+$/, "") ?? "lyrics-video") + ".mp4";
+      a.download = (audioFile?.name.replace(/\.[^/.]+$/, "") ?? "lyrics-video") + ".mov";
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
 
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setExportError(`Xuất MP4 thất bại: ${msg.slice(0, 120)}`);
+      setExportError(`Xuất MOV thất bại: ${msg.slice(0, 120)}`);
     } finally {
       setIsExporting(false);
       setExportProgress(0);
@@ -1408,10 +1424,11 @@ export default function App() {
         )}
 
         {/* Export buttons */}
+        {/* WebM */}
         <button
-          onClick={() => { setExportError(null); setExportingFormat("webm"); handleExportVideo(); }}
+          onClick={() => { setExportError(null); handleExportVideoWebm("webm"); }}
           disabled={!isReady || lyricsLines.length === 0 || isExporting}
-          title="Xuất WebM — realtime, hỗ trợ mọi trình duyệt"
+          title="Xuất WebM — VP9+Opus, offline rendering, phát được trong Chrome/Firefox/VLC"
           className="relative h-[38px] px-4 rounded-lg flex items-center gap-1.5 font-semibold text-xs transition-all shrink-0
             border border-violet-500/40 text-violet-300
             hover:bg-violet-500/10 hover:border-violet-400/60
@@ -1427,24 +1444,45 @@ export default function App() {
             <><Download className="w-3 h-3" />WebM</>
           )}
         </button>
+        {/* MKV */}
         <button
-          onClick={handleExportVideoMp4}
+          onClick={() => { setExportError(null); handleExportVideoWebm("mkv"); }}
           disabled={!isReady || lyricsLines.length === 0 || isExporting}
-          title="Xuất MP4 — offline rendering, cần Chrome/Edge 94+"
+          title="Xuất MKV — VP9+Opus, cực ít lỗi codec, tương thích VLC/DaVinci/Premiere"
+          className="relative h-[38px] px-4 rounded-lg flex items-center gap-1.5 font-semibold text-xs transition-all shrink-0
+            border border-sky-500/40 text-sky-300
+            hover:bg-sky-500/10 hover:border-sky-400/60
+            disabled:opacity-30 disabled:cursor-not-allowed overflow-hidden"
+        >
+          {isExporting && exportingFormat === "mkv" ? (
+            <>
+              <span className="absolute inset-0 bg-sky-500/20 origin-left" style={{ transform: `scaleX(${exportProgress})`, transition: "transform 0.4s linear" }} />
+              <Loader2 className="w-3 h-3 animate-spin relative z-10" />
+              <span className="relative z-10">{Math.round(exportProgress * 100)}%</span>
+            </>
+          ) : (
+            <><Download className="w-3 h-3" />MKV</>
+          )}
+        </button>
+        {/* MOV */}
+        <button
+          onClick={() => { setExportError(null); handleExportVideoMov(); }}
+          disabled={!isReady || lyricsLines.length === 0 || isExporting}
+          title="Xuất MOV — H.264+AAC, QuickTime, tốt cho macOS/Final Cut/iMovie"
           className="relative h-[38px] px-4 rounded-lg flex items-center gap-1.5 font-semibold text-xs transition-all shrink-0
             bg-gradient-to-r from-fuchsia-600 to-violet-600
             hover:from-fuchsia-500 hover:to-violet-500
             shadow-md shadow-violet-500/25
             disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none overflow-hidden"
         >
-          {isExporting && exportingFormat === "mp4" ? (
+          {isExporting && exportingFormat === "mov" ? (
             <>
               <span className="absolute inset-0 bg-white/15 origin-left" style={{ transform: `scaleX(${exportProgress})`, transition: "transform 0.4s linear" }} />
               <Loader2 className="w-3 h-3 animate-spin relative z-10" />
               <span className="relative z-10">{Math.round(exportProgress * 100)}%</span>
             </>
           ) : (
-            <><Download className="w-3 h-3" />MP4</>
+            <><Download className="w-3 h-3" />MOV</>
           )}
         </button>
       </div>
