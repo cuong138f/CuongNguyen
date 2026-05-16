@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { GoogleGenAI } from "@google/genai";
+import multer from "multer";
 import { writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,11 +16,9 @@ function normalizeMimeType(raw: string): { mimeType: string; ext: string } {
   if (lower.includes("ogg"))  return { mimeType: "audio/ogg",  ext: "ogg"  };
   if (lower.includes("wav") || lower.includes("wave")) return { mimeType: "audio/wav",  ext: "wav"  };
   if (lower.includes("flac")) return { mimeType: "audio/flac", ext: "flac" };
-  // WebM containers (audio or video) — must be sent with the correct MIME type so
-  // Gemini's demuxer can parse the timeline correctly. Sending as audio/mp3 would
-  // cause all timestamps to collapse to ~0.
+  // WebM containers — must be sent with the correct MIME type so Gemini's demuxer
+  // can parse the timeline correctly.
   if (lower.includes("webm")) return { mimeType: "video/webm", ext: "webm" };
-  // Unknown format — try as mp3 (most common upload)
   return { mimeType: "audio/mp3", ext: "mp3" };
 }
 
@@ -57,9 +56,6 @@ Verify your work: before outputting, confirm that your last entry's "start" time
 Output the JSON array now:
 `.trim();
 
-// Files ≤ this size can be sent inline (Gemini inlineData limit)
-const INLINE_LIMIT_BYTES = 4 * 1024 * 1024; // 4 MB
-
 const SYNC_PROMPT = (lyrics: string[]) =>
   `You are an expert music synchronization assistant. Listen to the audio and find the precise timestamp for each lyric line listed below.
 
@@ -78,17 +74,47 @@ Rules:
 
 Output the JSON array now:`.trim();
 
-router.post("/transcribe-audio", async (req, res) => {
-  const { audioBase64, mimeType: rawMimeType, customPrompt, knownLyrics } = req.body as {
-    audioBase64?: string;
-    mimeType?: string;
-    customPrompt?: string;
-    knownLyrics?: string[];
-  };
+// Files ≤ this size can be sent inline (Gemini inlineData limit)
+const INLINE_LIMIT_BYTES = 4 * 1024 * 1024; // 4 MB
 
-  if (!audioBase64 || !rawMimeType) {
-    res.status(400).json({ error: "audioBase64 and mimeType are required" });
-    return;
+// Accept up to 200 MB audio upload via multipart/form-data
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 200 * 1024 * 1024 },
+});
+
+router.post("/transcribe-audio", upload.single("audio"), async (req, res) => {
+  // Support both multipart/form-data (new) and legacy JSON body
+  let audioBuffer: Buffer;
+  let rawMimeType: string;
+  let customPrompt: string | undefined;
+  let knownLyrics: string[] | undefined;
+
+  if (req.file) {
+    // Multipart upload
+    audioBuffer   = req.file.buffer;
+    rawMimeType   = req.file.mimetype || (req.body.mimeType as string) || "audio/mpeg";
+    customPrompt  = req.body.customPrompt as string | undefined;
+    const kl = req.body.knownLyrics as string | undefined;
+    if (kl) {
+      try { knownLyrics = JSON.parse(kl) as string[]; } catch { /* ignore */ }
+    }
+  } else {
+    // Legacy JSON body fallback
+    const body = req.body as {
+      audioBase64?: string;
+      mimeType?: string;
+      customPrompt?: string;
+      knownLyrics?: string[];
+    };
+    if (!body.audioBase64 || !body.mimeType) {
+      res.status(400).json({ error: "Provide audio via multipart 'audio' field or legacy audioBase64+mimeType JSON" });
+      return;
+    }
+    audioBuffer  = Buffer.from(body.audioBase64, "base64");
+    rawMimeType  = body.mimeType;
+    customPrompt = body.customPrompt;
+    knownLyrics  = body.knownLyrics;
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
@@ -99,7 +125,6 @@ router.post("/transcribe-audio", async (req, res) => {
 
   const { mimeType, ext } = normalizeMimeType(rawMimeType);
   const ai = new GoogleGenAI({ apiKey });
-  const audioBuffer = Buffer.from(audioBase64, "base64");
 
   const validKnownLyrics = Array.isArray(knownLyrics) && knownLyrics.length > 0
     ? knownLyrics.map((l) => String(l).trim()).filter(Boolean)
@@ -123,7 +148,7 @@ router.post("/transcribe-audio", async (req, res) => {
         model: "gemini-2.5-flash",
         contents: [{
           parts: [
-            { inlineData: { mimeType, data: audioBase64 } },
+            { inlineData: { mimeType, data: audioBuffer.toString("base64") } },
             { text: activePrompt },
           ],
         }],
@@ -233,7 +258,6 @@ function parseTimestamp(val: unknown): number {
   if (typeof val === "number") return isFinite(val) ? val : 0;
   if (typeof val === "string") {
     const trimmed = val.trim();
-    // Handle HH:MM:SS or MM:SS string timestamps (Gemini sometimes returns these)
     if (trimmed.includes(":")) {
       const parts = trimmed.split(":").map(Number);
       if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];

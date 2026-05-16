@@ -812,26 +812,18 @@ export default function App() {
         }
       }
 
-      // Read audio as base64
-      const arrayBuffer = await audioFile.arrayBuffer();
-      const uint8 = new Uint8Array(arrayBuffer);
-      let binary = "";
-      for (let i = 0; i < uint8.byteLength; i++) binary += String.fromCharCode(uint8[i]);
-      const audioBase64 = btoa(binary);
-      const mimeType = audioFile.type || "audio/mpeg";
+      // Send audio as multipart/form-data (binary — smaller than base64, avoids proxy 413)
+      const form = new FormData();
+      form.append("audio", audioFile, audioFile.name);
+      if (useSyncMode) {
+        form.append("knownLyrics", JSON.stringify(manualLines));
+      } else if (customPrompt.trim() !== DEFAULT_PROMPT.trim()) {
+        form.append("customPrompt", customPrompt.trim());
+      }
 
       const res = await fetch("/api/transcribe-audio", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          audioBase64,
-          mimeType,
-          // Sync mode: send user's lyrics so AI only produces timestamps, not new text
-          ...(useSyncMode
-            ? { knownLyrics: manualLines }
-            : { customPrompt: customPrompt.trim() !== DEFAULT_PROMPT.trim() ? customPrompt.trim() : undefined }
-          ),
-        }),
+        body: form,
       });
 
       if (!res.ok) {
