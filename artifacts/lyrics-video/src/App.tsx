@@ -577,6 +577,8 @@ export default function App() {
   const [splitCutInputs, setSplitCutInputs] = useState<string[]>([]);
   const [splitProgress, setSplitProgress] = useState<{ current: number; total: number } | null>(null);
   const [gapShiftInputs, setGapShiftInputs] = useState<Record<number, string>>({});
+  const [shiftFromIdx, setShiftFromIdx] = useState<number | null>(null);
+  const [shiftFromInput, setShiftFromInput] = useState("");
   const [customPrompt, setCustomPrompt] = useState<string>(() =>
     localStorage.getItem("lv_customPrompt") ?? DEFAULT_PROMPT
   );
@@ -2207,7 +2209,59 @@ export default function App() {
                           <Trash2 className="w-3 h-3" />
                         </button>
                       )}
+                      {/* ── Shift-from-here button ── */}
+                      {editingLineIndex !== i && (
+                        <button
+                          onClick={() => {
+                            setShiftFromIdx(shiftFromIdx === i ? null : i);
+                            setShiftFromInput("");
+                          }}
+                          className={`shrink-0 opacity-0 group-hover:opacity-100 transition-all ml-0.5 text-[10px] font-bold leading-none ${shiftFromIdx === i ? "opacity-100 text-blue-400" : "text-white/20 hover:text-blue-400"}`}
+                          title="Dời tất cả dòng từ đây về sau (tiến/lùi N giây)"
+                        >
+                          ⇕
+                        </button>
+                      )}
                     </div>
+                      )}
+                      {/* ── Inline shift panel ── */}
+                      {shiftFromIdx === i && !line.isMarker && (
+                        <div className="flex items-center gap-2 px-2.5 py-1.5 mb-0.5 rounded-lg bg-blue-500/[0.07] border border-blue-500/20 text-[10px]">
+                          <span className="text-blue-400/70 font-semibold shrink-0">⇕ Dời từ dòng này về sau:</span>
+                          <input
+                            autoFocus
+                            type="number"
+                            step="1"
+                            value={shiftFromInput}
+                            onChange={(e) => setShiftFromInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                const d = parseFloat(shiftFromInput);
+                                if (!isNaN(d) && d !== 0) { shiftLinesFrom(i, d); setShiftFromIdx(null); }
+                              }
+                              if (e.key === "Escape") setShiftFromIdx(null);
+                            }}
+                            placeholder="±giây"
+                            className="w-16 bg-white/[0.06] border border-blue-500/30 focus:border-blue-400/60 rounded px-1.5 py-0.5 text-blue-200/80 font-mono text-center outline-none"
+                            title="Số dương = tiến, số âm = lùi. Ví dụ: -30 để lùi 30s, +10 để tiến 10s"
+                          />
+                          <button
+                            onClick={() => {
+                              const d = parseFloat(shiftFromInput);
+                              if (!isNaN(d) && d !== 0) { shiftLinesFrom(i, d); setShiftFromIdx(null); }
+                            }}
+                            className="px-2 py-0.5 bg-blue-500/20 hover:bg-blue-500/35 border border-blue-500/30 rounded text-blue-300 font-semibold transition-all shrink-0"
+                          >
+                            Áp dụng
+                          </button>
+                          <button
+                            onClick={() => setShiftFromIdx(null)}
+                            className="text-white/25 hover:text-white/60 transition-colors shrink-0"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                          <span className="text-white/20 ml-1 shrink-0">Enter để lưu · Esc huỷ</span>
+                        </div>
                       )}
                     </Fragment>
                     );
@@ -2216,7 +2270,7 @@ export default function App() {
                 <p className="text-[10px] text-white/20 mt-1.5 text-center">
                   <span className="text-violet-400/50">start</span> ·{" "}
                   <span className="text-emerald-400/50">giây</span> ·{" "}
-                  <span className="text-teal-400/50">end</span> nhấn để sửa · ✏ lời · ✂ cắt · 🗑 xoá · Enter lưu · Esc huỷ
+                  <span className="text-teal-400/50">end</span> nhấn để sửa · ✏ lời · ✂ cắt · <span className="text-blue-400/50">⇕ dời từ đây</span> · 🗑 xoá
                 </p>
               </div>
             )}
