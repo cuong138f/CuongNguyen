@@ -991,7 +991,7 @@ export default function App() {
       if (coverImage) {
         coverImg = new window.Image();
         coverImg.src = coverImage;
-        await new Promise<void>((r) => { coverImg!.onload = r; coverImg!.onerror = r; });
+        await new Promise<void>((r) => { coverImg!.onload = () => r(); coverImg!.onerror = () => r(); });
       }
 
       const { Muxer, ArrayBufferTarget } = await import("webm-muxer");
@@ -999,8 +999,9 @@ export default function App() {
       const hasAudio = !!audioFile && typeof AudioEncoder !== "undefined";
       const muxer = new Muxer({
         target,
-        video: { codec: "V_VP9", width: W, height: H, frameRate: FPS },
-        ...(hasAudio ? { audio: { codec: "A_OPUS", sampleRate: 44100, numberOfChannels: 2, bitDepth: 32 } } : {}),
+        video: { codec: "V_VP8", width: W, height: H, frameRate: FPS },
+        ...(hasAudio ? { audio: { codec: "A_OPUS", sampleRate: 44100, numberOfChannels: 2 } } : {}),
+        type: fmt === "mkv" ? "matroska" : "webm",
       });
 
       let videoEncoderError: Error | null = null;
@@ -1009,7 +1010,7 @@ export default function App() {
         error: (e) => { videoEncoderError = e; },
       });
       videoEncoder.configure({
-        codec: "vp09.00.10.08",
+        codec: "vp8",
         width: W, height: H,
         bitrate: 5_000_000,
         framerate: FPS,
@@ -1125,7 +1126,7 @@ export default function App() {
       if (coverImage) {
         coverImg = new window.Image();
         coverImg.src = coverImage;
-        await new Promise<void>((r) => { coverImg!.onload = r; coverImg!.onerror = r; });
+        await new Promise<void>((r) => { coverImg!.onload = () => r(); coverImg!.onerror = () => r(); });
       }
 
       const { Muxer, ArrayBufferTarget } = await import("mp4-muxer");
@@ -1210,7 +1211,7 @@ export default function App() {
       if (videoEncoderError) throw videoEncoderError;
       muxer.finalize();
 
-      const blob = new Blob([target.buffer], { type: "video/quicktime" });
+      const blob = new Blob([target.buffer], { type: "video/mp4" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
