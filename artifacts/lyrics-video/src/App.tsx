@@ -187,6 +187,7 @@ function drawLyricFrame(
   fontSizePct: number,
   prerollSec = 0,
   ep: EffectParams = DEFAULT_EFFECT_PARAMS,
+  fontFamily = "Inter",
 ) {
   const WIPE_HOLD = ep.wipeHold;
   ctx.clearRect(0, 0, W, H);
@@ -237,7 +238,7 @@ function drawLyricFrame(
   const textY = H - Math.round(40 * S);
   const shadowBlur = Math.round(28 * S);
   ctx.save();
-  ctx.font = `bold ${baseFontPx}px Inter, system-ui, sans-serif`;
+  ctx.font = `bold ${baseFontPx}px '${fontFamily}', system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
 
@@ -281,6 +282,45 @@ function drawLyricFrame(
     ctx.strokeStyle = styleColors.fill; ctx.shadowColor = styleColors.glow; ctx.shadowBlur = Math.round(14 * S);
     ctx.lineWidth = Math.max(1.5, 3.5 * S); ctx.lineCap = "round"; ctx.stroke();
     ctx.restore();
+  } else if (effect === "zoom") {
+    // Zoom in over first 0.35 s, hold, then fade out over last 0.2s
+    const zoomIn = Math.min(1, lineElapsed / 0.35);
+    const scale = 0.75 + zoomIn * 0.25;
+    const alpha = zoomIn * Math.max(0, 1 - Math.max(0, lp - 0.8) / 0.2);
+    ctx.save();
+    ctx.translate(W / 2, textY);
+    ctx.scale(scale, scale);
+    ctx.translate(-W / 2, -textY);
+    ctx.globalAlpha = alpha;
+    ctx.shadowColor = styleColors.glow; ctx.shadowBlur = shadowBlur * 1.4;
+    ctx.fillStyle = styleColors.fill;
+    ctx.fillText(cLine.text, W / 2, textY);
+    ctx.restore();
+  } else if (effect === "slide") {
+    // Slide up from below over first 0.4 s, fade out over last 0.2 s
+    const slideIn = Math.min(1, lineElapsed / 0.4);
+    const eased = 1 - Math.pow(1 - slideIn, 3); // cubic ease-out
+    const offsetY = (1 - eased) * Math.round(70 * S);
+    const alpha = eased * Math.max(0, 1 - Math.max(0, lp - 0.8) / 0.2);
+    ctx.save();
+    ctx.translate(0, offsetY);
+    ctx.globalAlpha = alpha;
+    ctx.shadowColor = styleColors.glow; ctx.shadowBlur = shadowBlur;
+    ctx.fillStyle = styleColors.fill;
+    ctx.fillText(cLine.text, W / 2, textY);
+    ctx.restore();
+  } else if (effect === "neon") {
+    // Bright neon glow with sine-wave pulse on shadowBlur, fade out last 15%
+    const pulse = 0.65 + Math.sin(time * 4.8) * 0.35;
+    const alpha = Math.max(0, 1 - Math.max(0, lp - 0.85) / 0.15);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = styleColors.fill;
+    // Layer 3 glow passes for intensity
+    for (let pass = 0; pass < 3; pass++) {
+      ctx.shadowColor = styleColors.glow;
+      ctx.shadowBlur = shadowBlur * (1.2 + pass * 1.1) * pulse;
+      ctx.fillText(cLine.text, W / 2, textY);
+    }
   } else {
     // wipe: clip right portion, hold 1.5 s first
     ctx.save();
@@ -428,13 +468,26 @@ async function findBestCutPoints(file: File, numCuts: number): Promise<number[]>
 
 // ─── Lyric effect presets ───────────────────────────────────────────────────
 const LYRIC_EFFECTS = [
-  { id: "wipe",     label: "Xóa trái→phải" },
-  { id: "fade",     label: "Mờ dần"        },
-  { id: "blur",     label: "Nhòe dần"      },
-  { id: "karaoke",  label: "Karaoke"       },
-  { id: "wave",     label: "Gạch sóng"    },
+  { id: "wipe",      label: "Xóa dần"      },
+  { id: "fade",      label: "Mờ dần"       },
+  { id: "blur",      label: "Nhòe dần"     },
+  { id: "karaoke",   label: "Karaoke"      },
+  { id: "wave",      label: "Gạch sóng"   },
+  { id: "zoom",      label: "Phóng to"     },
+  { id: "slide",     label: "Trượt lên"    },
+  { id: "neon",      label: "Neon"         },
 ] as const;
 type LyricEffectId = (typeof LYRIC_EFFECTS)[number]["id"];
+
+const LYRIC_FONTS = [
+  { id: "Inter",            label: "Inter"      },
+  { id: "Montserrat",       label: "Montserrat" },
+  { id: "Bebas Neue",       label: "Bebas Neue" },
+  { id: "Oswald",           label: "Oswald"     },
+  { id: "Playfair Display", label: "Playfair"   },
+  { id: "Dancing Script",   label: "Dancing"    },
+] as const;
+type LyricFontId = (typeof LYRIC_FONTS)[number]["id"];
 
 type EffectParams = {
   wipeHold: number;    // wipe: seconds to hold before sweeping (0–3, default 1.5)
@@ -598,7 +651,7 @@ export default function App() {
   );
   const [lyricEffect, setLyricEffect] = useState<LyricEffectId>(() => {
     const saved = localStorage.getItem("lv_lyricEffect");
-    return (saved && ["fade", "slide", "pop", "wipe", "karaoke", "wave"].includes(saved) ? saved : "wipe") as LyricEffectId;
+    return (saved && ["fade", "wipe", "karaoke", "wave", "blur", "zoom", "slide", "neon"].includes(saved) ? saved : "wipe") as LyricEffectId;
   });
   const [effectParams, setEffectParams] = useState<EffectParams>(() => {
     try {
@@ -628,6 +681,9 @@ export default function App() {
     const saved = localStorage.getItem("lv_lyricStyleId");
     return (saved && ["purple", "gold", "cyan", "rose", "green", "white"].includes(saved) ? saved : "purple") as LyricStyleId;
   });
+  const [lyricFont, setLyricFont] = useState<LyricFontId>(() =>
+    (localStorage.getItem("lv_lyricFont") as LyricFontId | null) ?? "Inter"
+  );
   const [lyricFontSize, setLyricFontSize] = useState<number>(() => {
     const saved = parseInt(localStorage.getItem("lv_lyricFontSize") ?? "", 10);
     return isNaN(saved) ? 100 : Math.min(180, Math.max(60, saved));
@@ -721,6 +777,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem("lv_effectParams", JSON.stringify(effectParams)); }, [effectParams]);
   useEffect(() => { localStorage.setItem("lv_lyricStyleId", lyricStyleId); }, [lyricStyleId]);
   useEffect(() => { localStorage.setItem("lv_lyricFontSize", String(lyricFontSize)); }, [lyricFontSize]);
+  useEffect(() => { localStorage.setItem("lv_lyricFont", lyricFont); }, [lyricFont]);
   useEffect(() => { localStorage.setItem("lv_prerollSeconds", String(prerollSeconds)); }, [prerollSeconds]);
   useEffect(() => { localStorage.setItem("lv_customPrompt", customPrompt); }, [customPrompt]);
   // Auto-populate cut inputs when splitParts or duration changes
@@ -1298,6 +1355,7 @@ export default function App() {
       const styleColors = CANVAS_COLORS[lyricStyleId] ?? CANVAS_COLORS.purple;
       const effect = lyricEffect;
       const fontPct = lyricFontSize;
+      const font = lyricFont;
       const preroll = prerollSeconds;
       const lines = lyricsLines.filter((l) => !l.isMarker);
       const totalDur = duration || (lines.length > 0 ? lines[lines.length - 1].end + 2 : 60);
@@ -1376,7 +1434,7 @@ export default function App() {
 
       for (let fi = 0; fi < totalFrames; fi++) {
         if (videoEncoderError) throw videoEncoderError;
-        drawLyricFrame(ctx, W, H, fi / FPS, lines, coverImg, styleColors, effect, fontPct, preroll, effectParams);
+        drawLyricFrame(ctx, W, H, fi / FPS, lines, coverImg, styleColors, effect, fontPct, preroll, effectParams, font);
         const vf = new VideoFrame(canvas, {
           timestamp: Math.round(fi / FPS * 1_000_000),
           duration: Math.round(1_000_000 / FPS),
@@ -1453,6 +1511,7 @@ export default function App() {
       const styleColors = CANVAS_COLORS[lyricStyleId] ?? CANVAS_COLORS.purple;
       const effect = lyricEffect;
       const fontPct = lyricFontSize;
+      const font = lyricFont;
       const preroll = prerollSeconds;
       const lines = lyricsLines.filter((l) => !l.isMarker);
       const totalDur = duration || (lines.length > 0 ? lines[lines.length - 1].end + 2 : 60);
@@ -1535,7 +1594,7 @@ export default function App() {
       // Render all video frames offline (fast, no real-time dependency)
       for (let fi = 0; fi < totalFrames; fi++) {
         if (videoEncoderError) throw videoEncoderError;
-        drawLyricFrame(ctx, W, H, fi / FPS, lines, coverImg, styleColors, effect, fontPct, preroll, effectParams);
+        drawLyricFrame(ctx, W, H, fi / FPS, lines, coverImg, styleColors, effect, fontPct, preroll, effectParams, font);
         const vf = new VideoFrame(canvas, {
           timestamp: Math.round(fi / FPS * 1_000_000),
           duration: Math.round(1_000_000 / FPS),
@@ -1617,9 +1676,12 @@ export default function App() {
 
   // Per-effect opacity target (goes into Framer Motion animate so it wins)
   const effectOpacity =
-    lyricEffect === "fade" ? Math.max(0, 1 - wipeProgress * effectParams.fadeSpeed)
-    : lyricEffect === "wave" ? 1
-    : lyricEffect === "blur" ? Math.max(0, 1 - wipeProgress * 0.85)
+    lyricEffect === "fade"  ? Math.max(0, 1 - wipeProgress * effectParams.fadeSpeed)
+    : lyricEffect === "wave"  ? 1
+    : lyricEffect === "blur"  ? Math.max(0, 1 - wipeProgress * 0.85)
+    : lyricEffect === "zoom"  ? Math.max(0, 1 - Math.max(0, lineProgress - 0.8) / 0.2)
+    : lyricEffect === "slide" ? Math.max(0, 1 - Math.max(0, lineProgress - 0.8) / 0.2)
+    : lyricEffect === "neon"  ? Math.max(0, 1 - Math.max(0, lineProgress - 0.85) / 0.15)
     : 1;
 
   // Per-effect CSS filter (safe in style — not in animate, so no conflict)
@@ -2464,11 +2526,16 @@ export default function App() {
                         <motion.div
                           key={`cur-${currentLineIndex}`}
                           className="text-center"
-                          initial={{ opacity: 0, scale: 0.96 }}
-                          animate={{ opacity: effectOpacity, scale: 1 }}
+                          initial={{
+                            opacity: 0,
+                            scale: lyricEffect === "zoom" ? 0.75 : 0.96,
+                            y: lyricEffect === "slide" ? 50 : 0,
+                          }}
+                          animate={{ opacity: effectOpacity, scale: 1, y: 0 }}
                           exit={{ opacity: 0, transition: { duration: 0.18 } }}
                           transition={{
                             scale: { type: "spring", stiffness: 340, damping: 30 },
+                            y: { type: "spring", stiffness: 320, damping: 28 },
                             opacity: { duration: 0.08 },
                           }}
                           style={{
@@ -2476,7 +2543,11 @@ export default function App() {
                             bottom: "2.5rem",
                             left: "2rem",
                             right: "2rem",
+                            fontFamily: lyricFont,
                             ...(effectFilter && { filter: effectFilter }),
+                            ...(lyricEffect === "neon" && {
+                              textShadow: `0 0 8px ${activeStyle.dot}, 0 0 20px ${activeStyle.dot}80, 0 0 40px ${activeStyle.dot}40`,
+                            }),
                           }}
                         >
                           {lyricEffect === "wave" ? (
@@ -2770,6 +2841,29 @@ export default function App() {
                   </div>
                 </>
               )}
+
+              <div className="h-5 w-px bg-white/[0.06] shrink-0" />
+
+              {/* Font family */}
+              <div className="flex items-center gap-2">
+                <p className="text-[9px] font-semibold uppercase tracking-widest text-white/30 shrink-0">Font</p>
+                <div className="flex flex-wrap gap-1">
+                  {LYRIC_FONTS.map((f) => (
+                    <button
+                      key={f.id}
+                      onClick={() => setLyricFont(f.id)}
+                      className={`px-2 py-1 rounded-lg text-[9px] font-medium transition-all border ${
+                        lyricFont === f.id
+                          ? "border-white/30 bg-white/[0.1] text-white"
+                          : "border-white/[0.06] bg-white/[0.03] text-white/40 hover:text-white/70 hover:border-white/15"
+                      }`}
+                      style={{ fontFamily: f.id }}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               <div className="h-5 w-px bg-white/[0.06] shrink-0" />
 
