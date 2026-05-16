@@ -1068,10 +1068,13 @@ export default function App() {
         }
       }
 
-      setExportProgress(0.97);
+      setExportProgress(0.96);
       await videoEncoder.flush();
       if (videoEncoderError) throw videoEncoderError;
+      setExportProgress(0.99);
       muxer.finalize();
+      setExportProgress(1.0);
+      await new Promise((r) => setTimeout(r, 200));
 
       const mimeType = fmt === "mkv" ? "video/x-matroska" : "video/webm";
       const blob = new Blob([target.buffer], { type: mimeType });
@@ -1206,10 +1209,13 @@ export default function App() {
         }
       }
 
-      setExportProgress(0.97);
+      setExportProgress(0.96);
       await videoEncoder.flush();
       if (videoEncoderError) throw videoEncoderError;
+      setExportProgress(0.99);
       muxer.finalize();
+      setExportProgress(1.0);
+      await new Promise((r) => setTimeout(r, 200));
 
       const blob = new Blob([target.buffer], { type: "video/mp4" });
       const url = URL.createObjectURL(blob);
