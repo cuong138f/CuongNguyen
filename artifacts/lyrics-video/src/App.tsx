@@ -687,33 +687,36 @@ export default function App() {
     geminiLines: { text: string; start: number; end: number }[],
     keepManual = false,
   ) => {
-    const manualLines = lyricsText.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (keepManual) {
+      // "Đồng bộ" mode: keep user's typed text, distribute Gemini timestamps
+      // proportionally by character length across Gemini's detected time range.
+      const manualLines = lyricsText.split("\n").map((l) => l.trim()).filter(Boolean);
+      if (manualLines.length > 0 && geminiLines.length > 0) {
+        const rangeStart = geminiLines[0].start;
+        const rangeEnd   = geminiLines[geminiLines.length - 1].end;
+        const totalDur   = Math.max(rangeEnd - rangeStart, manualLines.length * 2);
 
-    // Auto spell-check: if user has typed lyrics on the left, always use them
-    // as the authoritative text and only take timestamps from Gemini
-    const useManual = keepManual || manualLines.length > 0;
+        const charLens   = manualLines.map((l) => Math.max(l.length, 1));
+        const totalChars = charLens.reduce((a, b) => a + b, 0);
 
-    if (useManual && manualLines.length > 0 && geminiLines.length > 0) {
-      // Keep user's typed text; assign Gemini timestamps line-by-line
-      const avgDur =
-        geminiLines.length > 1
-          ? (geminiLines[geminiLines.length - 1].end - geminiLines[0].start) / geminiLines.length
-          : Math.max(1, geminiLines[0].end - geminiLines[0].start);
-      const lastEnd = geminiLines[geminiLines.length - 1].end;
-
-      const synced = manualLines.map((text, i) => {
-        if (i < geminiLines.length) {
-          return { text, start: geminiLines[i].start, end: geminiLines[i].end };
-        }
-        // Extra manual lines beyond Gemini count → extend proportionally
-        const extra = i - geminiLines.length;
-        return { text, start: lastEnd + extra * avgDur, end: lastEnd + (extra + 1) * avgDur };
-      });
-      setLyricsLines(synced);
-    } else {
-      setLyricsText(geminiLines.map((l) => l.text).join("\n"));
-      setLyricsLines(geminiLines);
+        let cumulative = 0;
+        const synced = manualLines.map((text, i) => {
+          const startFrac = cumulative / totalChars;
+          cumulative += charLens[i];
+          const endFrac   = cumulative / totalChars;
+          const start     = Math.round((rangeStart + startFrac * totalDur) * 10) / 10;
+          const end       = Math.round((rangeStart + endFrac   * totalDur) * 10) / 10;
+          return { text, start, end };
+        });
+        setLyricsLines(synced);
+        setCurrentLineIndex(-1);
+        return;
+      }
     }
+
+    // "Nhận diện AI" mode (or Đồng bộ fallback): use Gemini's text + timestamps as-is
+    setLyricsText(geminiLines.map((l) => l.text).join("\n"));
+    setLyricsLines(geminiLines);
     setCurrentLineIndex(-1);
   };
 

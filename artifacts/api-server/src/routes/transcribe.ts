@@ -7,15 +7,19 @@ import { randomUUID } from "node:crypto";
 
 const router = Router();
 
-// Gemini performs best with these canonical MIME types for audio
+// Gemini performs best with these canonical MIME types for audio/video
 function normalizeMimeType(raw: string): { mimeType: string; ext: string } {
   const lower = raw.toLowerCase();
-  if (lower.includes("mpeg") || lower.includes("mp3")) return { mimeType: "audio/mp3", ext: "mp3" };
-  if (lower.includes("mp4") || lower.includes("m4a") || lower.includes("aac")) return { mimeType: "audio/mp4", ext: "mp4" };
-  if (lower.includes("ogg")) return { mimeType: "audio/ogg", ext: "ogg" };
-  if (lower.includes("wav") || lower.includes("wave")) return { mimeType: "audio/wav", ext: "wav" };
+  if (lower.includes("mpeg") || lower.includes("mp3")) return { mimeType: "audio/mp3",  ext: "mp3"  };
+  if (lower.includes("mp4") || lower.includes("m4a") || lower.includes("aac")) return { mimeType: "audio/mp4",  ext: "mp4"  };
+  if (lower.includes("ogg"))  return { mimeType: "audio/ogg",  ext: "ogg"  };
+  if (lower.includes("wav") || lower.includes("wave")) return { mimeType: "audio/wav",  ext: "wav"  };
   if (lower.includes("flac")) return { mimeType: "audio/flac", ext: "flac" };
-  // webm or unknown → treat as mp3 (most common upload format)
+  // WebM containers (audio or video) — must be sent with the correct MIME type so
+  // Gemini's demuxer can parse the timeline correctly. Sending as audio/mp3 would
+  // cause all timestamps to collapse to ~0.
+  if (lower.includes("webm")) return { mimeType: "video/webm", ext: "webm" };
+  // Unknown format — try as mp3 (most common upload)
   return { mimeType: "audio/mp3", ext: "mp3" };
 }
 
