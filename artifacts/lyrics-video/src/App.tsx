@@ -530,6 +530,8 @@ export default function App() {
   const waveformRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
   const lyricsViewRef = useRef<HTMLDivElement>(null);
+  const captureAudioCtxRef = useRef<AudioContext | null>(null);
+  const captureAudioDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
 
   useEffect(() => {
     if (!waveformRef.current || !audioUrl) return;
@@ -924,15 +926,36 @@ export default function App() {
     canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext("2d")!;
 
-    // Audio stream
-    const mediaEl = wavesurferRef.current.getMediaElement() as HTMLMediaElement & {
-      captureStream?: () => MediaStream;
-      mozCaptureStream?: () => MediaStream;
-    };
-    const audioStream = mediaEl.captureStream?.() ?? mediaEl.mozCaptureStream?.();
+    // Audio capture via AudioContext (more reliable than captureStream on <audio>)
+    const mediaEl = wavesurferRef.current.getMediaElement();
     const canvasStream = canvas.captureStream(30);
-    const combined = audioStream
-      ? new MediaStream([...canvasStream.getVideoTracks(), ...audioStream.getAudioTracks()])
+    let audioTracks: MediaStreamTrack[] = [];
+    try {
+      if (!captureAudioCtxRef.current || captureAudioCtxRef.current.state === "closed") {
+        captureAudioCtxRef.current = new AudioContext();
+        captureAudioDestRef.current = null;
+      }
+      const ctx = captureAudioCtxRef.current;
+      if (ctx.state === "suspended") await ctx.resume();
+      if (!captureAudioDestRef.current) {
+        const dest = ctx.createMediaStreamDestination();
+        const src = ctx.createMediaElementSource(mediaEl);
+        src.connect(dest);
+        src.connect(ctx.destination); // keep playing to speakers during export
+        captureAudioDestRef.current = dest;
+      }
+      audioTracks = captureAudioDestRef.current.stream.getAudioTracks();
+    } catch {
+      // Fallback: captureStream (less reliable on <audio> but better than silence)
+      const mediaElFallback = mediaEl as HTMLMediaElement & {
+        captureStream?: () => MediaStream;
+        mozCaptureStream?: () => MediaStream;
+      };
+      const s = mediaElFallback.captureStream?.() ?? mediaElFallback.mozCaptureStream?.();
+      audioTracks = s?.getAudioTracks() ?? [];
+    }
+    const combined = audioTracks.length > 0
+      ? new MediaStream([...canvasStream.getVideoTracks(), ...audioTracks])
       : canvasStream;
 
     const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
@@ -1014,22 +1037,9 @@ export default function App() {
     const W = 1280, H = 720, FPS = 30;
     const CODEC_VIDEO = "avc1.42E01E"; // H.264 Baseline 3.0 — widest support
 
-    // Check codec support — non-blocking: sandbox/iframe may report false even if encoding works
-    try {
-      const sw = await VideoEncoder.isConfigSupported({
-        codec: CODEC_VIDEO, width: W, height: H, bitrate: 6_000_000, framerate: FPS,
-        hardwareAcceleration: "prefer-software",
-      });
-      const hw = await VideoEncoder.isConfigSupported({
-        codec: CODEC_VIDEO, width: W, height: H, bitrate: 6_000_000, framerate: FPS,
-      });
-      if (!sw.supported && !hw.supported) {
-        setExportError("H.264 không được hỗ trợ trên trình duyệt này. Hãy dùng WebM.");
-        return;
-      }
-    } catch {
-      // isConfigSupported may throw in early WebCodecs — proceed anyway
-    }
+    // Note: isConfigSupported() often returns false in sandboxed iframes even when
+    // encoding works fine — we skip it and let the actual VideoEncoder.configure()
+    // throw if the codec is truly unsupported.
 
     setExportingFormat("mp4");
     setIsExporting(true);
