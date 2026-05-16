@@ -1164,6 +1164,24 @@ export default function App() {
 
       {/* ── TOOLBAR ─────────────────────────────────────────── */}
       <div className="shrink-0 border-b border-white/[0.06] bg-[#0d0d0d] px-4 py-2.5 flex items-center gap-2.5 overflow-x-auto">
+        {/* Prompt toggle — far left */}
+        <button
+          onClick={() => setShowPrompt((v) => !v)}
+          className={`flex items-center gap-1 text-[10px] transition-colors shrink-0 ${showPrompt ? "text-violet-400" : "text-white/20 hover:text-violet-400"}`}
+          title="Tuỳ chỉnh prompt gửi Gemini"
+        >
+          <ChevronDown
+            className="w-3 h-3 transition-transform duration-200"
+            style={{ transform: showPrompt ? "rotate(180deg)" : "rotate(0deg)" }}
+          />
+          <span>Prompt</span>
+          {customPrompt.trim() !== DEFAULT_PROMPT.trim() && (
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 ml-0.5" />
+          )}
+        </button>
+
+        <div className="h-5 w-px bg-white/[0.08] shrink-0" />
+
         {/* Cover — compact 16:9 thumbnail */}
         <label className="cursor-pointer group shrink-0">
           <input type="file" accept="image/*" className="sr-only" onChange={handleCoverUpload} />
@@ -1184,23 +1202,18 @@ export default function App() {
           </div>
         </label>
 
-        {/* Audio upload */}
+        {/* Audio upload — compact */}
         <label className="cursor-pointer group shrink-0">
           <input type="file" accept="audio/*" className="sr-only" onChange={handleAudioUpload} />
-          <div className={`h-[38px] px-3 rounded-lg border transition-all flex items-center gap-2 ${
+          <div className={`h-[38px] px-2.5 rounded-lg border transition-all flex items-center gap-1.5 ${
             audioFile
               ? "border-violet-500/30 bg-violet-500/[0.06]"
               : "border-white/[0.08] bg-white/[0.03] group-hover:border-violet-500/30 group-hover:bg-violet-500/[0.04]"
           }`}>
             <Music className={`w-3.5 h-3.5 shrink-0 ${audioFile ? "text-violet-400" : "text-white/25 group-hover:text-violet-400 transition-colors"}`} />
-            <div className="min-w-0">
-              <p className={`text-xs font-medium truncate max-w-[150px] leading-tight ${audioFile ? "text-white/80" : "text-white/30 group-hover:text-white/50 transition-colors"}`}>
-                {audioFile ? audioFile.name.replace(/\.[^/.]+$/, "") : "Upload nhạc"}
-              </p>
-              {audioFile && isReady && (
-                <p className="text-[9px] text-white/30 font-mono leading-tight">{(audioFile.size / 1024 / 1024).toFixed(1)} MB · {formatTime(duration)}</p>
-              )}
-            </div>
+            <span className={`text-xs font-medium truncate max-w-[90px] leading-tight ${audioFile ? "text-white/70" : "text-white/30 group-hover:text-white/50 transition-colors"}`}>
+              {audioFile ? audioFile.name.replace(/\.[^/.]+$/, "") : "Upload nhạc"}
+            </span>
           </div>
         </label>
 
@@ -1258,22 +1271,6 @@ export default function App() {
             Nhận diện lại
           </button>
         )}
-
-        {/* Prompt toggle */}
-        <button
-          onClick={() => setShowPrompt((v) => !v)}
-          className={`flex items-center gap-1 text-[10px] transition-colors shrink-0 ${showPrompt ? "text-violet-400" : "text-white/20 hover:text-violet-400"}`}
-          title="Tuỳ chỉnh prompt gửi Gemini"
-        >
-          <ChevronDown
-            className="w-3 h-3 transition-transform duration-200"
-            style={{ transform: showPrompt ? "rotate(180deg)" : "rotate(0deg)" }}
-          />
-          <span>Prompt</span>
-          {customPrompt.trim() !== DEFAULT_PROMPT.trim() && (
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 ml-0.5" />
-          )}
-        </button>
 
         <div className="flex-1" />
 
@@ -1600,7 +1597,7 @@ export default function App() {
         <main className="flex-1 flex flex-col overflow-hidden bg-[#080808]">
 
           {/* 16:9 Video Preview — flex-1, height-driven */}
-          <div className="flex-1 flex items-center justify-center px-6 pt-5 pb-2 min-h-0 overflow-hidden">
+          <div className="flex-1 flex items-center justify-center px-4 pt-3 pb-1 min-h-0 overflow-hidden">
           <div className="h-full aspect-video max-w-[900px] min-w-0">
             <div className="w-full h-full rounded-2xl overflow-hidden relative shadow-2xl shadow-black/70 ring-1 ring-white/[0.06]">
               {coverImage ? (
