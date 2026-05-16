@@ -855,15 +855,15 @@ export default function App() {
   // No clamping — timestamps may exceed audio duration (user can extend timeline freely).
   const clampLines = (lines: LyricLine[]): LyricLine[] => lines;
 
-  /** Shift all lines from fromIdx onwards backwards by subtractSecs seconds */
-  const shiftLinesFrom = (fromIdx: number, subtractSecs: number) => {
+  /** Shift all lines from fromIdx onwards by deltaSecs (positive = forward, negative = backward). Lines are never removed — timestamps floor at 0. */
+  const shiftLinesFrom = (fromIdx: number, deltaSecs: number) => {
     setLyricsLines((prev) =>
       prev.map((line, idx) => {
         if (idx < fromIdx) return line;
         return {
           ...line,
-          start: Math.max(0, +((line.start - subtractSecs).toFixed(1))),
-          end:   Math.max(0, +((line.end   - subtractSecs).toFixed(1))),
+          start: Math.max(0, +((line.start + deltaSecs).toFixed(1))),
+          end:   Math.max(0, +((line.end   + deltaSecs).toFixed(1))),
         };
       })
     );
@@ -2013,28 +2013,27 @@ export default function App() {
                           <span className="text-[9px] font-semibold text-amber-400/70 shrink-0 flex items-center gap-1">
                             ⚠ {gapSecs.toFixed(0)}s
                           </span>
-                          <span className="text-[9px] text-white/20 shrink-0">trừ</span>
                           <input
                             type="number"
-                            min="0"
                             step="1"
-                            value={gapShiftInputs[i] ?? gapSecs.toFixed(0)}
+                            value={gapShiftInputs[i] ?? ""}
                             onChange={(e) =>
                               setGapShiftInputs((prev) => ({ ...prev, [i]: e.target.value }))
                             }
-                            className="w-11 bg-white/[0.05] border border-amber-500/20 focus:border-amber-400/40 rounded px-1 py-0.5 text-[9px] text-amber-300/80 font-mono text-center outline-none"
-                            title="Số giây cần trừ khỏi tất cả dòng từ đây về sau"
+                            placeholder="±s"
+                            className="w-12 bg-white/[0.05] border border-amber-500/20 focus:border-amber-400/40 rounded px-1 py-0.5 text-[9px] text-amber-300/80 font-mono text-center outline-none"
+                            title="Nhập số dương để cộng thêm giây, số âm để dịch lùi. Ví dụ: -30 để lùi 30 giây, +10 để tiến 10 giây"
                           />
                           <span className="text-[9px] text-white/20 shrink-0">s từ đây</span>
                           <button
                             onClick={() => {
-                              const secs = parseFloat(gapShiftInputs[i] ?? gapSecs.toFixed(0));
-                              if (!isNaN(secs) && secs > 0) shiftLinesFrom(i, secs);
+                              const delta = parseFloat(gapShiftInputs[i] ?? "");
+                              if (!isNaN(delta) && delta !== 0) shiftLinesFrom(i, delta);
                             }}
                             className="text-[9px] font-semibold text-amber-400/80 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 rounded px-1.5 py-0.5 transition-all shrink-0"
-                            title="Dịch lùi tất cả dòng từ đây về sau"
+                            title="Áp dụng dịch chuyển cho tất cả dòng từ đây về sau"
                           >
-                            Dịch lùi
+                            Dời
                           </button>
                           <div className="flex-1 h-px bg-amber-500/25" />
                         </div>
