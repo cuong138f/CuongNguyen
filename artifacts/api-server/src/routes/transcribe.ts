@@ -94,8 +94,6 @@ router.post("/transcribe-audio", upload.single("audio"), async (req, res) => {
   let hintLyrics: string[] | undefined;
   let fixRequest: string | undefined;
   let currentLyrics: Array<{ text: string; start: number; end: number }> | undefined;
-  // splitPartOffset: start time (seconds) of this segment in the full song
-  let splitPartOffset = 0;
 
   if (req.file) {
     // Multipart upload
@@ -115,8 +113,6 @@ router.post("/transcribe-audio", upload.single("audio"), async (req, res) => {
     if (cl) {
       try { currentLyrics = JSON.parse(cl) as Array<{ text: string; start: number; end: number }>; } catch { /* ignore */ }
     }
-    const spo = parseFloat(req.body.splitPartOffset as string);
-    if (isFinite(spo) && spo > 0) splitPartOffset = spo;
   } else {
     // Legacy JSON body fallback
     const body = req.body as {
@@ -168,20 +164,15 @@ router.post("/transcribe-audio", upload.single("audio"), async (req, res) => {
     ? SYNC_PROMPT(validKnownLyrics)
     : (customPrompt?.trim()) || PROMPT;
 
-  // For split parts, append an offset context note so Gemini can calibrate the timeline.
-  const splitContext = splitPartOffset > 0
-    ? `\n\nSEGMENT NOTE: This audio is a segment extracted from a longer song, starting at ${splitPartOffset.toFixed(1)}s in the original. Output timestamps relative to the START of this audio segment (i.e. 0:00 = the beginning of this file). The segment may begin with an instrumental section before any vocals — that is normal; timestamp the vocals wherever they appear in this file.`
-    : "";
-
   // Priority: fix-request > hint > base
   const activePrompt = validFixRequest && validCurrentLyrics
     ? buildFixPrompt(validCurrentLyrics, validFixRequest)
     : validHintLyrics
-      ? `${basePrompt}${splitContext}\n\nGỢI Ý CHÍNH TẢ (${validHintLyrics.length} dòng — ưu tiên dùng đúng dấu thanh tiếng Việt theo danh sách này):\n${validHintLyrics.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nDùng danh sách trên để viết đúng chính tả. Timestamp vẫn phải tự xác định từ audio.`
-      : `${basePrompt}${splitContext}`;
+      ? `${basePrompt}\n\nGỢI Ý CHÍNH TẢ (${validHintLyrics.length} dòng — ưu tiên dùng đúng dấu thanh tiếng Việt theo danh sách này):\n${validHintLyrics.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nDùng danh sách trên để viết đúng chính tả. Timestamp vẫn phải tự xác định từ audio.`
+      : basePrompt;
 
   req.log.info(
-    { rawMimeType, mimeType, bytes: audioBuffer.byteLength, syncMode: !!validKnownLyrics, hasHint: !!validHintLyrics, fixMode: !!validFixRequest, usingCustomPrompt: !!customPrompt?.trim(), splitPartOffset },
+    { rawMimeType, mimeType, bytes: audioBuffer.byteLength, syncMode: !!validKnownLyrics, hasHint: !!validHintLyrics, fixMode: !!validFixRequest, usingCustomPrompt: !!customPrompt?.trim() },
     "Starting transcription"
   );
 
@@ -276,9 +267,8 @@ router.post("/transcribe-audio", upload.single("audio"), async (req, res) => {
 
   // Detect near-zero timestamp collapse — Gemini returns this when it can't parse
   // the audio timeline (wrong MIME type, corrupted file, unsupported encoding, etc.)
-  // Skip this check for split parts (WAV re-encode can trigger false positives).
   const maxStart = Math.max(...lines.map((l) => l.start));
-  if (splitPartOffset === 0 && lines.length > 3 && maxStart < 2) {
+  if (lines.length > 3 && maxStart < 2) {
     req.log.error({ maxStart, lineCount: lines.length }, "Near-zero timestamps — Gemini could not read audio timeline");
     res.status(502).json({
       error: "AI nhận ra lời nhưng không đọc được thời gian trong file nhạc này. Hãy thử lại với file MP3 hoặc M4A thay vì WAV/FLAC.",

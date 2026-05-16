@@ -954,33 +954,21 @@ export default function App() {
           const { file: partFile, offset } = parts[pi];
           const form = new FormData();
           form.append("audio", partFile, partFile.name);
-          form.append("splitPartOffset", String(offset));
           if (customPrompt.trim() !== DEFAULT_PROMPT.trim()) {
             form.append("customPrompt", customPrompt.trim());
           }
-          let partOk = false;
-          try {
-            const res = await fetch("/api/transcribe-audio", { method: "POST", body: form });
-            if (!res.ok) {
-              const errData = await res.json().catch(() => ({})) as { error?: string };
-              throw new Error(errData.error ?? `HTTP ${res.status}`);
-            }
-            const data = await res.json() as { lines: { text: string; start: number; end: number }[] };
-            const offsetLines = (data.lines ?? []).map((l) => ({
-              text: l.text,
-              start: +(l.start + offset).toFixed(1),
-              end:   +(l.end   + offset).toFixed(1),
-            }));
-            allLines.push(...offsetLines);
-            partOk = true;
-          } catch (partErr) {
-            setTranscribeError(`Phần ${pi + 1}/${parts.length} thất bại: ${partErr instanceof Error ? partErr.message : "lỗi không xác định"}. Tiếp tục ghép kết quả các phần còn lại.`);
+          const res = await fetch("/api/transcribe-audio", { method: "POST", body: form });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({})) as { error?: string };
+            throw new Error(errData.error ?? `HTTP ${res.status}`);
           }
-          if (!partOk && pi === 0) {
-            // First part failed — abort entirely
-            setSplitProgress(null);
-            return;
-          }
+          const data = await res.json() as { lines: { text: string; start: number; end: number }[] };
+          const offsetLines = (data.lines ?? []).map((l) => ({
+            text: l.text,
+            start: +(l.start + offset).toFixed(1),
+            end:   +(l.end   + offset).toFixed(1),
+          }));
+          allLines.push(...offsetLines);
         }
         setSplitProgress(null);
         if (!allLines.length) {
