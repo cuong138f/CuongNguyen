@@ -50,16 +50,16 @@ DANH SÁCH SẢN PHẨM TRONG KHO:
 ${productList}
 
 NHIỆM VỤ:
-Nhìn vào ảnh và xác định những sản phẩm nào trong danh sách trên xuất hiện trong ảnh, đồng thời ước tính số lượng.
+Nhìn vào ảnh và xác định những sản phẩm nào trong danh sách trên xuất hiện trong ảnh, đồng thời ước tính số lượng và vị trí trung tâm của sản phẩm trong ảnh.
 
 QUY TẮC:
 - Chỉ nhận dạng sản phẩm có trong DANH SÁCH TRONG KHO ở trên (dùng đúng ID)
 - Nếu không thấy rõ hoặc không chắc → bỏ qua, đừng đoán sai
 - Số lượng: đếm số đơn vị nhìn thấy (hộp, gói, chai...), mặc định là 1 nếu không đếm được
-- Ưu tiên sản phẩm nhìn rõ và có thể nhận dạng chính xác
+- cx, cy: tọa độ tâm của sản phẩm trong ảnh, tính bằng phần trăm (0.0 đến 1.0), ví dụ cx=0.5 cy=0.5 là giữa ảnh
 
 Trả về JSON thuần — không markdown, không giải thích:
-[{"productId": 1, "quantity": 2}, ...]
+[{"productId": 1, "quantity": 2, "cx": 0.3, "cy": 0.5}, ...]
 
 Nếu không nhận dạng được sản phẩm nào: []`;
 
@@ -86,7 +86,7 @@ Nếu không nhận dạng được sản phẩm nào: []`;
     return;
   }
 
-  let detected: { productId: number; quantity: number }[];
+  let detected: { productId: number; quantity: number; cx?: number; cy?: number }[];
   try {
     const clean = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
     detected = JSON.parse(clean);
@@ -105,6 +105,8 @@ Nếu không nhận dạng được sản phẩm nào: []`;
       productName: productMap.get(d.productId)!.name,
       quantity: Math.max(1, Math.round(d.quantity)),
       unitPrice: productMap.get(d.productId)!.price,
+      cx: typeof d.cx === "number" ? Math.min(1, Math.max(0, d.cx)) : 0.5,
+      cy: typeof d.cy === "number" ? Math.min(1, Math.max(0, d.cy)) : 0.5,
     }));
 
   req.log.info({ detectedCount: items.length }, "Scan complete");

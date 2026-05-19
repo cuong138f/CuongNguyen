@@ -7,6 +7,8 @@ interface ScannedItem {
   productName: string;
   quantity: number;
   unitPrice: number;
+  cx: number;
+  cy: number;
 }
 
 interface CameraScannerProps {
@@ -327,7 +329,7 @@ export default function CameraScanner({ onDetected, onClose }: CameraScannerProp
               <div className="flex items-center gap-2 text-green-600">
                 <CheckCircle className="w-5 h-5" />
                 <span className="font-semibold text-sm">
-                  Nhận dạng {scannedItems.length} sản phẩm — chọn để thêm vào đơn
+                  Nhấn số trên ảnh để chọn / bỏ chọn
                 </span>
               </div>
               <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
@@ -335,7 +337,46 @@ export default function CameraScanner({ onDetected, onClose }: CameraScannerProp
               </button>
             </div>
 
-            {/* Items list — tap to toggle */}
+            {/* Image with hotspot number markers */}
+            <div className="relative bg-black flex-shrink-0" style={{ maxHeight: "45vh" }}>
+              <img
+                src={capturedImage}
+                alt="captured"
+                className="w-full h-full object-contain"
+                style={{ maxHeight: "45vh" }}
+              />
+              {scannedItems.map((item, idx) => {
+                const selected = selectedIds.has(item.productId);
+                return (
+                  <button
+                    key={item.productId}
+                    type="button"
+                    onClick={() => toggleItem(item.productId)}
+                    style={{
+                      position: "absolute",
+                      left: `${item.cx * 100}%`,
+                      top: `${item.cy * 100}%`,
+                      transform: "translate(-50%, -50%)",
+                    }}
+                    className="group focus:outline-none"
+                  >
+                    {/* Pulse ring when selected */}
+                    {selected && (
+                      <span className="absolute inset-0 rounded-full bg-primary/40 animate-ping" />
+                    )}
+                    <div className={`relative w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shadow-lg border-2 transition-all active:scale-90 ${
+                      selected
+                        ? "bg-primary border-white text-white"
+                        : "bg-black/60 border-white/40 text-white/50"
+                    }`}>
+                      {idx + 1}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Compact list */}
             <div className="flex-1 overflow-y-auto divide-y bg-white">
               {scannedItems.map((item, idx) => {
                 const selected = selectedIds.has(item.productId);
@@ -344,32 +385,25 @@ export default function CameraScanner({ onDetected, onClose }: CameraScannerProp
                     key={item.productId}
                     type="button"
                     onClick={() => toggleItem(item.productId)}
-                    className={`w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors active:bg-muted/60 ${
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors active:bg-muted/60 ${
                       selected ? "bg-white" : "bg-muted/30"
                     }`}
                   >
-                    {/* Number badge */}
-                    <div className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center font-bold text-sm transition-colors ${
-                      selected
-                        ? "bg-primary text-white"
-                        : "bg-muted text-muted-foreground line-through"
+                    <div className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center font-bold text-xs transition-colors ${
+                      selected ? "bg-primary text-white" : "bg-muted text-muted-foreground"
                     }`}>
                       {idx + 1}
                     </div>
-
-                    {/* Name */}
-                    <span className={`flex-1 font-medium line-clamp-1 transition-colors ${
+                    <span className={`flex-1 font-medium line-clamp-1 ${
                       selected ? "text-foreground" : "text-muted-foreground line-through"
                     }`}>
                       {item.productName}
                     </span>
-
-                    {/* Qty + price */}
-                    <div className={`text-right shrink-0 transition-colors ${selected ? "" : "opacity-40"}`}>
-                      <div className="text-muted-foreground text-xs">x{item.quantity}</div>
-                      <div className="text-primary font-semibold whitespace-nowrap">
-                        {(item.unitPrice * item.quantity).toLocaleString("vi-VN")} đ
-                      </div>
+                    <div className={`text-right shrink-0 ${selected ? "" : "opacity-40"}`}>
+                      <span className="text-muted-foreground text-xs mr-1.5">x{item.quantity}</span>
+                      <span className="text-primary font-semibold">
+                        {(item.unitPrice * item.quantity).toLocaleString("vi-VN")}đ
+                      </span>
                     </div>
                   </button>
                 );
@@ -379,7 +413,7 @@ export default function CameraScanner({ onDetected, onClose }: CameraScannerProp
             {/* Total + actions */}
             <div className="bg-white border-t px-4 py-4 space-y-3">
               <div className="flex items-center justify-between text-sm font-semibold px-1">
-                <span>
+                <span className="text-muted-foreground">
                   Đã chọn {selectedIds.size}/{scannedItems.length}
                 </span>
                 <span className="text-primary text-base">
@@ -390,12 +424,7 @@ export default function CameraScanner({ onDetected, onClose }: CameraScannerProp
                 </span>
               </div>
               <div className="flex gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={retake}
-                  className="flex-1 gap-2 rounded-full h-12"
-                >
+                <Button type="button" variant="outline" onClick={retake} className="flex-1 gap-2 rounded-full h-12">
                   <RotateCcw className="w-4 h-4" />
                   Chụp lại
                 </Button>
