@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
-import { Image as ImageIcon, ShoppingCart, Trash2, Minus, Plus, CheckCircle } from "lucide-react";
+import { Image as ImageIcon, ShoppingCart, Trash2, Minus, Plus, CheckCircle, Camera } from "lucide-react";
 import { formatVND } from "@/lib/format";
+import CameraScanner from "@/components/CameraScanner";
 
 interface CartItem {
   product: Product;
@@ -19,10 +20,22 @@ export default function SalePage() {
   const [cart, setCart] = useState<Record<number, number>>({});
   const [note, setNote] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
   const { data: products, isLoading } = useListProducts();
   const createSale = useCreateSale();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  const handleScanDetected = (items: { productId: number; quantity: number }[]) => {
+    setCart((prev) => {
+      const next = { ...prev };
+      items.forEach(({ productId, quantity }) => {
+        next[productId] = (next[productId] ?? 0) + quantity;
+      });
+      return next;
+    });
+    toast({ title: `Đã thêm ${items.length} sản phẩm vào đơn` });
+  };
 
   const setQty = (productId: number, qty: number) => {
     if (qty <= 0) {
@@ -76,7 +89,18 @@ export default function SalePage() {
   return (
     <div className="min-h-screen bg-background pb-48">
       <main className="container mx-auto px-4 py-8">
-        <h2 className="text-lg font-serif font-semibold mb-6 text-foreground/80">Chọn mặt hàng và số lượng bán</h2>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-lg font-serif font-semibold text-foreground/80">Chọn mặt hàng và số lượng bán</h2>
+          <Button
+            type="button"
+            onClick={() => setShowScanner(true)}
+            className="gap-2 rounded-full shrink-0"
+            variant="outline"
+          >
+            <Camera className="w-4 h-4" />
+            Quét ảnh
+          </Button>
+        </div>
 
         {isLoading ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">

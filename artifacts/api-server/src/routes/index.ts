@@ -13,6 +13,7 @@ import productsRouter from "./products";
 import searchImageRouter from "./search-image";
 import salesRouter from "./sales";
 import proxyImageRouter from "./proxy-image";
+import scanProductsRouter from "./scan-products";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use("/products", searchImageRouter);
 router.use("/products", productsRouter);
 router.use("/sales", salesRouter);
 router.use(proxyImageRouter);
+router.use(scanProductsRouter);
 
 export default router;
