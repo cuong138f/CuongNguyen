@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
-import { Image as ImageIcon, ShoppingCart, Trash2, Minus, Plus, CheckCircle, Camera } from "lucide-react";
+import { Image as ImageIcon, ShoppingCart, Trash2, Minus, Plus, CheckCircle, Camera, Search, X } from "lucide-react";
 import { formatVND } from "@/lib/format";
 import CameraScanner from "@/components/CameraScanner";
 
@@ -21,6 +21,7 @@ export default function SalePage() {
   const [note, setNote] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [search, setSearch] = useState("");
   const { data: products, isLoading } = useListProducts();
   const createSale = useCreateSale();
   const queryClient = useQueryClient();
@@ -48,6 +49,10 @@ export default function SalePage() {
       setCart((prev) => ({ ...prev, [productId]: qty }));
     }
   };
+
+  const filteredProducts = (products ?? []).filter((p) =>
+    !search.trim() || p.name.toLowerCase().includes(search.trim().toLowerCase())
+  );
 
   const cartItems: CartItem[] = (products ?? [])
     .filter((p) => cart[p.id] > 0)
@@ -89,8 +94,24 @@ export default function SalePage() {
   return (
     <div className="min-h-screen bg-background pb-48">
       <main className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-serif font-semibold text-foreground/80">Chọn mặt hàng và số lượng bán</h2>
+        <div className="flex items-center gap-3 mb-6">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Tìm sản phẩm..."
+              className="pl-9 pr-9 rounded-full h-10"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
           <Button
             type="button"
             onClick={() => setShowScanner(true)}
@@ -106,9 +127,15 @@ export default function SalePage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
             {Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="aspect-[3/4] w-full rounded-xl" />)}
           </div>
+        ) : filteredProducts.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-3">
+            <Search className="w-10 h-10 opacity-30" />
+            <p className="text-sm">Không tìm thấy sản phẩm nào</p>
+            <button onClick={() => setSearch("")} className="text-sm text-primary underline-offset-2 hover:underline">Xóa tìm kiếm</button>
+          </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-            {(products ?? []).map((product) => {
+            {filteredProducts.map((product) => {
               const qty = cart[product.id] ?? 0;
               const active = qty > 0;
               return (
