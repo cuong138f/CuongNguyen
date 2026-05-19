@@ -151,6 +151,28 @@ export default function ProductForm({ product, onComplete, onCancel }: ProductFo
         if (data.quantity) form.setValue("quantity", data.quantity);
 
         toast({ title: "Đã nhận dạng sản phẩm", description: data.name || "Kiểm tra lại thông tin và chỉnh nếu cần." });
+
+        if (data.name) {
+          const q = [data.name, data.quantity].filter(Boolean).join(" ");
+          setSearchQuery(q);
+          setShowSearchPanel(true);
+          setSearchError("");
+          setSearchResults([]);
+          setIsSearching(true);
+          try {
+            const imgRes = await fetch(`/api/products/search-image?q=${encodeURIComponent(q)}`);
+            const imgData = await imgRes.json() as { images?: ImageResult[]; error?: string };
+            if (imgRes.ok && imgData.images && imgData.images.length > 0) {
+              setSearchResults(imgData.images);
+            } else {
+              setSearchError("Không tìm thấy ảnh phù hợp, thử từ khóa khác");
+            }
+          } catch {
+            setSearchError("Không thể tìm ảnh, vui lòng thử lại");
+          } finally {
+            setIsSearching(false);
+          }
+        }
       } catch (err: unknown) {
         toast({ variant: "destructive", title: "Lỗi nhận dạng", description: err instanceof Error ? err.message : "Không thể nhận dạng sản phẩm." });
       } finally {
