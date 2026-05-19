@@ -26,6 +26,9 @@ export default function CameraScanner({ onDetected, onClose }: CameraScannerProp
   const [error, setError] = useState("");
   const [cameraError, setCameraError] = useState("");
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
+  const [zoom, setZoom] = useState(1.0);
+
+  const ZOOM_LEVELS = [0.5, 0.8, 1.0, 1.5];
 
   const startCamera = useCallback(async (facing: "environment" | "user") => {
     if (streamRef.current) {
@@ -56,14 +59,22 @@ export default function CameraScanner({ onDetected, onClose }: CameraScannerProp
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
-    canvas.getContext("2d")!.drawImage(video, 0, 0);
+    const vw = video.videoWidth || 1280;
+    const vh = video.videoHeight || 720;
+    // Crop center based on zoom: zoom>1 = crop in, zoom<1 = no crop (show full)
+    const effectiveZoom = Math.max(zoom, 1);
+    const srcW = vw / effectiveZoom;
+    const srcH = vh / effectiveZoom;
+    const srcX = (vw - srcW) / 2;
+    const srcY = (vh - srcH) / 2;
+    canvas.width = srcW;
+    canvas.height = srcH;
+    canvas.getContext("2d")!.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH);
     const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
     setCapturedImage(dataUrl);
     setMode("preview");
     streamRef.current?.getTracks().forEach((t) => t.stop());
-  }, []);
+  }, [zoom]);
 
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -152,8 +163,27 @@ export default function CameraScanner({ onDetected, onClose }: CameraScannerProp
                     autoPlay
                     playsInline
                     muted
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover transition-transform duration-200"
+                    style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}
                   />
+                )}
+                {/* Zoom buttons overlay */}
+                {!cameraError && (
+                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5 bg-black/50 rounded-full px-2 py-1">
+                    {ZOOM_LEVELS.map((level) => (
+                      <button
+                        key={level}
+                        onClick={() => setZoom(level)}
+                        className={`text-xs font-semibold px-2 py-0.5 rounded-full transition-colors ${
+                          zoom === level
+                            ? "bg-white text-black"
+                            : "text-white/80 hover:text-white"
+                        }`}
+                      >
+                        {level}×
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
               <canvas ref={canvasRef} className="hidden" />
