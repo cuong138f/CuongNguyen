@@ -293,7 +293,7 @@ export default function ProductForm({ product, onComplete, onCancel }: ProductFo
                 </Button>
                 <Button
                   type="button"
-                  variant="default"
+                  variant="outline"
                   className="w-full h-8 text-xs gap-1.5 px-2"
                   onClick={() => scanInputRef.current?.click()}
                   disabled={isIdentifying}
