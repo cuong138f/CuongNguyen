@@ -204,8 +204,10 @@ export default function ProductForm({ product, onComplete, onCancel }: ProductFo
                   onClick={() => {
                     setShowSearchPanel((v) => !v);
                     setSearchError("");
-                    if (!searchQuery && form.getValues("name")) {
-                      setSearchQuery(form.getValues("name"));
+                    if (!searchQuery) {
+                      const name = form.getValues("name").trim();
+                      const qty = form.getValues("quantity").trim();
+                      setSearchQuery([name, qty].filter(Boolean).join(" "));
                     }
                   }}
                 >
