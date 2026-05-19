@@ -443,6 +443,50 @@ export interface ProductStats {
   lowStockCount: number;
 }
 
+export interface SaleItemInput {
+  productId?: number;
+  productName: string;
+  unitPrice: number;
+  /** @minimum 1 */
+  quantity: number;
+}
+
+export interface SaleInput {
+  note?: string;
+  /** @minItems 1 */
+  items: SaleItemInput[];
+}
+
+export interface SaleItem {
+  id: number;
+  /** @nullable */
+  productId?: number | null;
+  productName: string;
+  unitPrice: number;
+  quantity: number;
+  subtotal: number;
+}
+
+export interface Sale {
+  id: number;
+  /** @nullable */
+  note?: string | null;
+  totalAmount: number;
+  createdAt: string;
+  items: SaleItem[];
+}
+
+export interface RevenueStats {
+  today: number;
+  thisWeek: number;
+  thisMonth: number;
+  allTime: number;
+  todayCount: number;
+  thisWeekCount: number;
+  thisMonthCount: number;
+  allTimeCount: number;
+}
+
 export type GetMyActivityParams = {
   limit?: number;
 };

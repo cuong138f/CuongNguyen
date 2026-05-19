@@ -5,3 +5,4 @@ export * from "./chat";
 export * from "./speaking";
 export * from "./gamification";
 export * from "./products";
+export * from "./sales";

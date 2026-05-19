@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { Product } from "@workspace/api-client-react";
 import { useListProducts, useGetProductStats } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
@@ -50,20 +50,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground pb-20">
-      <header className="bg-white/80 backdrop-blur-md sticky top-0 z-20 border-b border-border shadow-sm">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <h1 className="text-xl font-serif font-bold text-primary flex items-center gap-2">
-            <span className="bg-primary text-primary-foreground w-8 h-8 rounded-lg flex items-center justify-center text-lg">T</span>
-            Tạp Hóa Manager
-          </h1>
-          <Button onClick={handleAddNew} className="gap-2 shadow-sm rounded-full px-6">
-            <Plus className="w-4 h-4" />
-            Thêm sản phẩm
-          </Button>
-        </div>
-      </header>
-
+    <div className="pb-20">
       <main className="container mx-auto px-4 py-8">
         {isLoadingStats ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

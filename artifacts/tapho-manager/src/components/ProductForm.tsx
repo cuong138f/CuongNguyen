@@ -126,9 +126,9 @@ export default function ProductForm({ product, onComplete, onCancel }: ProductFo
     const payload = {
       name: data.name,
       price: data.price,
-      description: data.description || null,
-      quantity: data.quantity || null,
-      imageUrl: data.imageUrl || null,
+      description: data.description || undefined,
+      quantity: data.quantity || undefined,
+      imageUrl: data.imageUrl || undefined,
     };
 
     const onSuccess = () => {
@@ -206,7 +206,7 @@ export default function ProductForm({ product, onComplete, onCancel }: ProductFo
                     setSearchError("");
                     if (!searchQuery) {
                       const name = form.getValues("name").trim();
-                      const qty = form.getValues("quantity").trim();
+                      const qty = (form.getValues("quantity") ?? "").trim();
                       setSearchQuery([name, qty].filter(Boolean).join(" "));
                     }
                   }}

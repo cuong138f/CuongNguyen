@@ -536,6 +536,71 @@ paths:
                 items:
                   $ref: "#/components/schemas/LeaderboardEntry"
 
+  # ─── Sales ───────────────────────────────────────────────────────────────────
+  /sales:
+    get:
+      tags: [products]
+      summary: List all sales
+      operationId: listSales
+      responses:
+        "200":
+          description: List of sales
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Sale"
+    post:
+      tags: [products]
+      summary: Create a new sale
+      operationId: createSale
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaleInput"
+      responses:
+        "201":
+          description: Sale created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sale"
+        "400":
+          description: Validation error
+
+  /sales/revenue:
+    get:
+      tags: [products]
+      summary: Get revenue statistics
+      operationId: getRevenueStats
+      responses:
+        "200":
+          description: Revenue summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevenueStats"
+
+  /sales/{id}:
+    delete:
+      tags: [products]
+      summary: Delete a sale
+      operationId: deleteSale
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
   /products:
     get:
       tags: [products]
@@ -1251,4 +1316,86 @@ components:
         lowStockCount:
           type: integer
           description: Products with low or no quantity info
+
+    SaleItemInput:
+      type: object
+      required: [productName, unitPrice, quantity]
+      properties:
+        productId:
+          type: integer
+        productName:
+          type: string
+        unitPrice:
+          type: integer
+        quantity:
+          type: integer
+          minimum: 1
+
+    SaleInput:
+      type: object
+      required: [items]
+      properties:
+        note:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SaleItemInput"
+          minItems: 1
+
+    SaleItem:
+      type: object
+      required: [id, productName, unitPrice, quantity, subtotal]
+      properties:
+        id:
+          type: integer
+        productId:
+          type: ["integer", "null"]
+        productName:
+          type: string
+        unitPrice:
+          type: integer
+        quantity:
+          type: integer
+        subtotal:
+          type: integer
+
+    Sale:
+      type: object
+      required: [id, totalAmount, createdAt, items]
+      properties:
+        id:
+          type: integer
+        note:
+          type: ["string", "null"]
+        totalAmount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SaleItem"
+
+    RevenueStats:
+      type: object
+      required: [today, thisWeek, thisMonth, allTime, todayCount, thisWeekCount, thisMonthCount, allTimeCount]
+      properties:
+        today:
+          type: integer
+        thisWeek:
+          type: integer
+        thisMonth:
+          type: integer
+        allTime:
+          type: integer
+        todayCount:
+          type: integer
+        thisWeekCount:
+          type: integer
+        thisMonthCount:
+          type: integer
+        allTimeCount:
+          type: integer
 

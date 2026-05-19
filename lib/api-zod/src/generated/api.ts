@@ -602,6 +602,66 @@ export const GetLeaderboardResponseItem = zod.object({
 export const GetLeaderboardResponse = zod.array(GetLeaderboardResponseItem);
 
 /**
+ * @summary List all sales
+ */
+export const ListSalesResponseItem = zod.object({
+  id: zod.number(),
+  note: zod.string().nullish(),
+  totalAmount: zod.number(),
+  createdAt: zod.coerce.date(),
+  items: zod.array(
+    zod.object({
+      id: zod.number(),
+      productId: zod.number().nullish(),
+      productName: zod.string(),
+      unitPrice: zod.number(),
+      quantity: zod.number(),
+      subtotal: zod.number(),
+    }),
+  ),
+});
+export const ListSalesResponse = zod.array(ListSalesResponseItem);
+
+/**
+ * @summary Create a new sale
+ */
+
+export const CreateSaleBody = zod.object({
+  note: zod.string().optional(),
+  items: zod
+    .array(
+      zod.object({
+        productId: zod.number().optional(),
+        productName: zod.string(),
+        unitPrice: zod.number(),
+        quantity: zod.number().min(1),
+      }),
+    )
+    .min(1),
+});
+
+/**
+ * @summary Get revenue statistics
+ */
+export const GetRevenueStatsResponse = zod.object({
+  today: zod.number(),
+  thisWeek: zod.number(),
+  thisMonth: zod.number(),
+  allTime: zod.number(),
+  todayCount: zod.number(),
+  thisWeekCount: zod.number(),
+  thisMonthCount: zod.number(),
+  allTimeCount: zod.number(),
+});
+
+/**
+ * @summary Delete a sale
+ */
+export const DeleteSaleParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
  * @summary List all products
  */
 export const ListProductsQueryParams = zod.object({

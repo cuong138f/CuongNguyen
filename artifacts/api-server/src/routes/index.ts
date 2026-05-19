@@ -11,6 +11,7 @@ import leaderboardRouter from "./leaderboard";
 import transcribeRouter from "./transcribe";
 import productsRouter from "./products";
 import searchImageRouter from "./search-image";
+import salesRouter from "./sales";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use("/leaderboard", leaderboardRouter);
 router.use(transcribeRouter);
 router.use("/products", searchImageRouter);
 router.use("/products", productsRouter);
+router.use("/sales", salesRouter);
 
 export default router;
