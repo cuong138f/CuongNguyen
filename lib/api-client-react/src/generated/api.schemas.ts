@@ -390,6 +390,59 @@ export interface LeaderboardEntry {
   isCurrentUser?: boolean;
 }
 
+export interface Product {
+  id: number;
+  name: string;
+  /** Price in VND (whole number) */
+  price: number;
+  /** @nullable */
+  description?: string | null;
+  /**
+   * E.g. "12 chai", "1 thùng"
+   * @nullable
+   */
+  quantity?: string | null;
+  /**
+   * URL or base64 data URL
+   * @nullable
+   */
+  imageUrl?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProductInput {
+  /** @minLength 1 */
+  name: string;
+  /** @minimum 0 */
+  price: number;
+  description?: string;
+  quantity?: string;
+  imageUrl?: string;
+}
+
+export interface ProductUpdate {
+  /** @minLength 1 */
+  name?: string;
+  /** @minimum 0 */
+  price?: number;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  quantity?: string | null;
+  /** @nullable */
+  imageUrl?: string | null;
+}
+
+export interface ProductStats {
+  totalProducts: number;
+  /** Sum of price * quantity (if quantity is numeric) in VND */
+  totalValue: number;
+  avgPrice: number;
+  /** Products with low or no quantity info */
+  lowStockCount: number;
+}
+
 export type GetMyActivityParams = {
   limit?: number;
 };
@@ -440,3 +493,10 @@ export const GetLeaderboardPeriod = {
   weekly: "weekly",
   alltime: "alltime",
 } as const;
+
+export type ListProductsParams = {
+  /**
+   * Search by product name
+   */
+  search?: string;
+};

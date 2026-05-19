@@ -1,0 +1,142 @@
+import React, { useState, useEffect, useRef } from "react";
+import { Product } from "@workspace/api-client-react";
+import { useListProducts, useGetProductStats } from "@workspace/api-client-react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Search, Plus } from "lucide-react";
+import StatsRow from "@/components/StatsRow";
+import ProductCard from "@/components/ProductCard";
+import ProductForm from "@/components/ProductForm";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+
+export default function Home() {
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | undefined>(undefined);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const { data: stats, isLoading: isLoadingStats } = useGetProductStats();
+  const { data: products, isLoading: isLoadingProducts } = useListProducts(
+    { search: debouncedSearch || undefined },
+    { query: { queryKey: ["/api/products", debouncedSearch] } }
+  );
+
+  const handleEdit = (product: Product) => {
+    setEditingProduct(product);
+    setIsFormOpen(true);
+  };
+
+  const handleAddNew = () => {
+    setEditingProduct(undefined);
+    setIsFormOpen(true);
+  };
+
+  const handleCloseForm = () => {
+    setIsFormOpen(false);
+    setEditingProduct(undefined);
+  };
+
+  return (
+    <div className="min-h-screen bg-background text-foreground pb-20">
+      <header className="bg-white/80 backdrop-blur-md sticky top-0 z-20 border-b border-border shadow-sm">
+        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+          <h1 className="text-xl font-serif font-bold text-primary flex items-center gap-2">
+            <span className="bg-primary text-primary-foreground w-8 h-8 rounded-lg flex items-center justify-center text-lg">T</span>
+            Tạp Hóa Manager
+          </h1>
+          <Button onClick={handleAddNew} className="gap-2 shadow-sm rounded-full px-6">
+            <Plus className="w-4 h-4" />
+            Thêm sản phẩm
+          </Button>
+        </div>
+      </header>
+
+      <main className="container mx-auto px-4 py-8">
+        {isLoadingStats ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)}
+          </div>
+        ) : (
+          stats && <StatsRow 
+            totalProducts={stats.totalProducts} 
+            totalValue={stats.totalValue} 
+            avgPrice={stats.avgPrice} 
+            lowStockCount={stats.lowStockCount} 
+          />
+        )}
+
+        <div className="mb-8 max-w-md mx-auto">
+          <div className="relative group">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <Search className="h-5 w-5 text-muted-foreground group-focus-within:text-primary transition-colors" />
+            </div>
+            <Input
+              type="text"
+              placeholder="Tìm kiếm sản phẩm..."
+              className="pl-10 h-12 rounded-full border-muted bg-white shadow-sm focus-visible:ring-primary/20 text-base"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {isLoadingProducts ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => (
+              <Skeleton key={i} className="aspect-[3/4] w-full rounded-xl" />
+            ))}
+          </div>
+        ) : products && products.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+            {products.map((product, idx) => (
+              <ProductCard key={product.id} product={product} onEdit={handleEdit} index={idx} />
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-20 bg-white/50 rounded-2xl border border-dashed border-muted mt-8">
+            <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+              <Search className="w-8 h-8 text-muted-foreground" />
+            </div>
+            <h3 className="text-lg font-serif font-medium mb-1">Không tìm thấy sản phẩm</h3>
+            <p className="text-muted-foreground text-sm max-w-sm mx-auto">
+              {search ? `Không có mặt hàng nào phù hợp với "${search}"` : "Chưa có sản phẩm nào trong kho. Hãy thêm sản phẩm đầu tiên!"}
+            </p>
+            {!search && (
+              <Button onClick={handleAddNew} variant="outline" className="mt-6">
+                Thêm sản phẩm
+              </Button>
+            )}
+          </div>
+        )}
+      </main>
+
+      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+        <DialogContent className="sm:max-w-[500px] p-0 overflow-hidden bg-background">
+          <DialogHeader className="p-6 pb-2">
+            <DialogTitle className="font-serif text-xl">
+              {editingProduct ? "Sửa thông tin sản phẩm" : "Thêm sản phẩm mới"}
+            </DialogTitle>
+          </DialogHeader>
+          <ProductForm 
+            product={editingProduct} 
+            onComplete={handleCloseForm} 
+            onCancel={handleCloseForm} 
+          />
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

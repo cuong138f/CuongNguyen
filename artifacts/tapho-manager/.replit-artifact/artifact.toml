@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/tapho-manager/"
+title = "Quản lý Tạp Hóa"
+version = "1.0.0"
+id = "artifacts/tapho-manager"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/tapho-manager/" ]
+localPort = 23528
+
+[services.development]
+run = "pnpm --filter @workspace/tapho-manager run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/tapho-manager", "run", "build" ]
+publicDir = "artifacts/tapho-manager/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23528"
+BASE_PATH = "/tapho-manager/"

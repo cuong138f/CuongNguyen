@@ -12,6 +12,8 @@ tags:
     description: Health operations
   - name: users
     description: User profile and progress
+  - name: products
+    description: Grocery store product management
   - name: vocabulary
     description: Vocabulary and flashcard management
   - name: lessons
@@ -533,6 +535,121 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/LeaderboardEntry"
+
+  /products:
+    get:
+      tags: [products]
+      summary: List all products
+      operationId: listProducts
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Search by product name
+      responses:
+        "200":
+          description: List of products
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Product"
+    post:
+      tags: [products]
+      summary: Create a product
+      operationId: createProduct
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "400":
+          description: Validation error
+
+  /products/stats:
+    get:
+      tags: [products]
+      summary: Get product statistics
+      operationId: getProductStats
+      responses:
+        "200":
+          description: Store statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductStats"
+
+  /products/{id}:
+    get:
+      tags: [products]
+      summary: Get a product by ID
+      operationId: getProduct
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Product found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          description: Not found
+    put:
+      tags: [products]
+      summary: Update a product
+      operationId: updateProduct
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          description: Not found
+    delete:
+      tags: [products]
+      summary: Delete a product
+      operationId: deleteProduct
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
 
 components:
   schemas:
@@ -1060,3 +1177,78 @@ components:
           type: integer
         isCurrentUser:
           type: boolean
+
+    Product:
+      type: object
+      required: [id, name, price, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        price:
+          type: integer
+          description: Price in VND (whole number)
+        description:
+          type: ["string", "null"]
+        quantity:
+          type: ["string", "null"]
+          description: E.g. "12 chai", "1 thùng"
+        imageUrl:
+          type: ["string", "null"]
+          description: URL or base64 data URL
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ProductInput:
+      type: object
+      required: [name, price]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        price:
+          type: integer
+          minimum: 0
+        description:
+          type: string
+        quantity:
+          type: string
+        imageUrl:
+          type: string
+
+    ProductUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        price:
+          type: integer
+          minimum: 0
+        description:
+          type: ["string", "null"]
+        quantity:
+          type: ["string", "null"]
+        imageUrl:
+          type: ["string", "null"]
+
+    ProductStats:
+      type: object
+      required: [totalProducts, totalValue, avgPrice, lowStockCount]
+      properties:
+        totalProducts:
+          type: integer
+        totalValue:
+          type: integer
+          description: Sum of price * quantity (if quantity is numeric) in VND
+        avgPrice:
+          type: integer
+        lowStockCount:
+          type: integer
+          description: Products with low or no quantity info
+

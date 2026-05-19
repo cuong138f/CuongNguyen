@@ -600,3 +600,101 @@ export const GetLeaderboardResponseItem = zod.object({
   isCurrentUser: zod.boolean().optional(),
 });
 export const GetLeaderboardResponse = zod.array(GetLeaderboardResponseItem);
+
+/**
+ * @summary List all products
+ */
+export const ListProductsQueryParams = zod.object({
+  search: zod.coerce.string().optional().describe("Search by product name"),
+});
+
+export const ListProductsResponseItem = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  price: zod.number().describe("Price in VND (whole number)"),
+  description: zod.string().nullish(),
+  quantity: zod.string().nullish().describe('E.g. \"12 chai\", \"1 thùng\"'),
+  imageUrl: zod.string().nullish().describe("URL or base64 data URL"),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+export const ListProductsResponse = zod.array(ListProductsResponseItem);
+
+/**
+ * @summary Create a product
+ */
+
+export const createProductBodyPriceMin = 0;
+
+export const CreateProductBody = zod.object({
+  name: zod.string().min(1),
+  price: zod.number().min(createProductBodyPriceMin),
+  description: zod.string().optional(),
+  quantity: zod.string().optional(),
+  imageUrl: zod.string().optional(),
+});
+
+/**
+ * @summary Get product statistics
+ */
+export const GetProductStatsResponse = zod.object({
+  totalProducts: zod.number(),
+  totalValue: zod
+    .number()
+    .describe("Sum of price \* quantity (if quantity is numeric) in VND"),
+  avgPrice: zod.number(),
+  lowStockCount: zod.number().describe("Products with low or no quantity info"),
+});
+
+/**
+ * @summary Get a product by ID
+ */
+export const GetProductParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetProductResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  price: zod.number().describe("Price in VND (whole number)"),
+  description: zod.string().nullish(),
+  quantity: zod.string().nullish().describe('E.g. \"12 chai\", \"1 thùng\"'),
+  imageUrl: zod.string().nullish().describe("URL or base64 data URL"),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Update a product
+ */
+export const UpdateProductParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const updateProductBodyPriceMin = 0;
+
+export const UpdateProductBody = zod.object({
+  name: zod.string().min(1).optional(),
+  price: zod.number().min(updateProductBodyPriceMin).optional(),
+  description: zod.string().nullish(),
+  quantity: zod.string().nullish(),
+  imageUrl: zod.string().nullish(),
+});
+
+export const UpdateProductResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  price: zod.number().describe("Price in VND (whole number)"),
+  description: zod.string().nullish(),
+  quantity: zod.string().nullish().describe('E.g. \"12 chai\", \"1 thùng\"'),
+  imageUrl: zod.string().nullish().describe("URL or base64 data URL"),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Delete a product
+ */
+export const DeleteProductParams = zod.object({
+  id: zod.coerce.number(),
+});
