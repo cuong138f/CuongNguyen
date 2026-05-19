@@ -215,6 +215,12 @@ export default function SalePage() {
           )}
         </div>
       </div>
+      {showScanner && (
+        <CameraScanner
+          onDetected={handleScanDetected}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
     </div>
   );
 }
