@@ -15,10 +15,9 @@ const PRICE_INPUT_PER_M  = 3.00;
 const PRICE_OUTPUT_PER_M = 15.00;
 
 router.post("/scan-products", upload.single("image"), async (req, res) => {
-  const baseUrl = process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL;
-  const apiKey  = process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY;
-  if (!baseUrl || !apiKey) {
-    res.status(500).json({ error: "Anthropic integration not configured" });
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    res.status(500).json({ error: "ANTHROPIC_API_KEY not configured" });
     return;
   }
 
@@ -68,7 +67,7 @@ Trả về JSON thuần — không markdown, không giải thích:
 
 Nếu không nhận dạng được sản phẩm nào: []`;
 
-  const client = new Anthropic({ baseURL: baseUrl, apiKey });
+  const client = new Anthropic({ apiKey });
 
   req.log.info({ productCount: products.length, imageBytes: imageBase64.length }, "Starting product scan");
 
