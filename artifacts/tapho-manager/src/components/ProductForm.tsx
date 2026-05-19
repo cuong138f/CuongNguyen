@@ -18,7 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Image as ImageIcon, UploadCloud, Loader2, Search, X, ChevronLeft, ChevronRight, Eraser } from "lucide-react";
+import { Image as ImageIcon, UploadCloud, Loader2, Search, X, Eraser, ScanLine } from "lucide-react";
 
 const formSchema = z.object({
   name: z.string().min(1, "Vui lòng nhập tên sản phẩm"),
@@ -64,6 +64,7 @@ export default function ProductForm({ product, onComplete, onCancel }: ProductFo
 
   const [imagePreview, setImagePreview] = useState<string>(product?.imageUrl || "");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const scanInputRef = useRef<HTMLInputElement>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<ImageResult[]>([]);
@@ -71,6 +72,7 @@ export default function ProductForm({ product, onComplete, onCancel }: ProductFo
   const [showSearchPanel, setShowSearchPanel] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [isRemovingBg, setIsRemovingBg] = useState(false);
+  const [isIdentifying, setIsIdentifying] = useState(false);
 
   const handleRemoveBg = useCallback(async () => {
     if (!imagePreview) return;
@@ -117,6 +119,48 @@ export default function ProductForm({ product, onComplete, onCancel }: ProductFo
     }
   };
 
+  const handleScanImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsIdentifying(true);
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64String = reader.result as string;
+      setImagePreview(base64String);
+      form.setValue("imageUrl", base64String);
+
+      try {
+        const base64Data = base64String.split(",")[1];
+        const mimeType = file.type || "image/jpeg";
+
+        const res = await fetch("/api/identify-product", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64: base64Data, mimeType }),
+        });
+
+        const data = await res.json() as { name?: string; price?: number; description?: string; quantity?: string; error?: string };
+
+        if (!res.ok) throw new Error(data.error || "Lỗi nhận dạng");
+
+        if (data.name) form.setValue("name", data.name);
+        if (data.price && data.price > 0) form.setValue("price", data.price);
+        if (data.description) form.setValue("description", data.description);
+        if (data.quantity) form.setValue("quantity", data.quantity);
+
+        toast({ title: "Đã nhận dạng sản phẩm", description: data.name || "Kiểm tra lại thông tin và chỉnh nếu cần." });
+      } catch (err: unknown) {
+        toast({ variant: "destructive", title: "Lỗi nhận dạng", description: err instanceof Error ? err.message : "Không thể nhận dạng sản phẩm." });
+      } finally {
+        setIsIdentifying(false);
+        if (scanInputRef.current) scanInputRef.current.value = "";
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSearchImages = async () => {
     const q = searchQuery.trim() || form.getValues("name").trim();
     if (!q) {
@@ -128,7 +172,7 @@ export default function ProductForm({ product, onComplete, onCancel }: ProductFo
     setSearchResults([]);
     try {
       const res = await fetch(`/api/products/search-image?q=${encodeURIComponent(q)}`);
-      const data = await res.json();
+      const data = await res.json() as { images?: ImageResult[]; error?: string };
       if (!res.ok) throw new Error(data.error || "Lỗi tìm kiếm");
       if (!data.images || data.images.length === 0) {
         setSearchError("Không tìm thấy ảnh phù hợp, thử từ khóa khác");
@@ -221,6 +265,22 @@ export default function ProductForm({ product, onComplete, onCancel }: ProductFo
 
               {/* Buttons */}
               <div className="flex flex-col gap-2 flex-1">
+                {/* Scan to identify */}
+                <Button
+                  type="button"
+                  variant="default"
+                  className="w-full h-10 gap-2"
+                  onClick={() => scanInputRef.current?.click()}
+                  disabled={isIdentifying}
+                >
+                  {isIdentifying ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <ScanLine className="w-4 h-4" />
+                  )}
+                  {isIdentifying ? "Đang nhận dạng..." : "Chụp & nhận dạng"}
+                </Button>
+
                 <Button
                   type="button"
                   variant="outline"
@@ -267,12 +327,21 @@ export default function ProductForm({ product, onComplete, onCancel }: ProductFo
                 )}
               </div>
 
+              {/* Hidden file inputs */}
               <input
                 type="file"
                 accept="image/*"
                 className="hidden"
                 ref={fileInputRef}
                 onChange={handleImageUpload}
+              />
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                ref={scanInputRef}
+                onChange={handleScanImage}
               />
             </div>
 

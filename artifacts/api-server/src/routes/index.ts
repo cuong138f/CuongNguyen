@@ -14,6 +14,7 @@ import searchImageRouter from "./search-image";
 import salesRouter from "./sales";
 import proxyImageRouter from "./proxy-image";
 import scanProductsRouter from "./scan-products";
+import identifyProductRouter from "./identify-product";
 
 const router: IRouter = Router();
 
