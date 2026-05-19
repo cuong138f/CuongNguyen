@@ -29,7 +29,7 @@ export default function Home() {
   }, [search]);
 
   const { data: stats, isLoading: isLoadingStats } = useGetProductStats();
-  const { data: revenue } = useGetRevenueStats();
+  const { data: revenue, isLoading: isLoadingRevenue } = useGetRevenueStats();
   const { data: products, isLoading: isLoadingProducts } = useListProducts(
     { search: debouncedSearch || undefined },
     { query: { queryKey: ["/api/products", debouncedSearch] } }
@@ -53,7 +53,7 @@ export default function Home() {
   return (
     <div className="pb-20">
       <main className="container mx-auto px-4 py-8">
-        {isLoadingStats ? (
+        {isLoadingStats || isLoadingRevenue ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)}
           </div>
