@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Product } from "@workspace/api-client-react";
-import { useListProducts, useGetProductStats } from "@workspace/api-client-react";
+import { useListProducts, useGetProductStats, useGetRevenueStats } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, Plus } from "lucide-react";
@@ -29,6 +29,7 @@ export default function Home() {
   }, [search]);
 
   const { data: stats, isLoading: isLoadingStats } = useGetProductStats();
+  const { data: revenue } = useGetRevenueStats();
   const { data: products, isLoading: isLoadingProducts } = useListProducts(
     { search: debouncedSearch || undefined },
     { query: { queryKey: ["/api/products", debouncedSearch] } }
@@ -57,11 +58,11 @@ export default function Home() {
             {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)}
           </div>
         ) : (
-          stats && <StatsRow 
-            totalProducts={stats.totalProducts} 
-            totalValue={stats.totalValue} 
-            avgPrice={stats.avgPrice} 
-            lowStockCount={stats.lowStockCount} 
+          stats && <StatsRow
+            totalProducts={stats.totalProducts}
+            todayRevenue={revenue?.today ?? 0}
+            weekRevenue={revenue?.thisWeek ?? 0}
+            monthRevenue={revenue?.thisMonth ?? 0}
           />
         )}
 
