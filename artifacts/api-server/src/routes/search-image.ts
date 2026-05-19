@@ -20,7 +20,8 @@ router.get("/search-image", async (req, res) => {
     const app = new FirecrawlApp({ apiKey });
     const v1 = app.v1;
 
-    const bingUrl = `https://www.bing.com/images/search?q=${encodeURIComponent(query.trim())}&form=HDRSC2&first=1`;
+    const productQuery = `${query.trim()} sản phẩm ảnh chính thức bao bì`;
+    const bingUrl = `https://www.bing.com/images/search?q=${encodeURIComponent(productQuery)}&form=HDRSC2&first=1&qft=+filterui:aspect-square+filterui:photo-photo`;
     const result = await v1.scrapeUrl(bingUrl, { formats: ["links"] });
 
     const images: { url: string; title: string }[] = [];
