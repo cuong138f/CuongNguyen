@@ -466,7 +466,7 @@ export default function CameraScanner({ onDetected, onClose }: CameraScannerProp
                       <span>{apiCost.inputTokens.toLocaleString()} in · {apiCost.outputTokens.toLocaleString()} out</span>
                     </div>
                     <span className="font-semibold text-violet-700">
-                      ~{Math.ceil(apiCost.costUsd * 25500).toLocaleString("vi-VN")} đ
+                      ~{Math.ceil(apiCost.costUsd * 26500).toLocaleString("vi-VN")} đ
                     </span>
                   </div>
                 )}
