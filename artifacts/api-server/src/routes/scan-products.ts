@@ -67,7 +67,13 @@ Nếu không nhận dạng được sản phẩm nào: []`;
 
   req.log.info({ productCount: products.length, imageBytes: imageBase64.length }, "Starting product scan");
 
+  // Gemini 2.5 Flash pricing (USD per 1M tokens, ≤200K context)
+  const PRICE_INPUT_PER_M  = 0.15;
+  const PRICE_OUTPUT_PER_M = 0.60;
+
   let rawText = "";
+  let inputTokens = 0;
+  let outputTokens = 0;
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
@@ -80,11 +86,16 @@ Nếu không nhận dạng được sản phẩm nào: []`;
       config: { temperature: 0 },
     });
     rawText = response.text?.trim() ?? "";
+    inputTokens  = response.usageMetadata?.promptTokenCount     ?? 0;
+    outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
   } catch (err) {
     req.log.error({ err }, "Gemini scan failed");
     res.status(500).json({ error: "AI không thể phân tích ảnh. Vui lòng thử lại." });
     return;
   }
+
+  const costUsd = (inputTokens / 1_000_000) * PRICE_INPUT_PER_M
+                + (outputTokens / 1_000_000) * PRICE_OUTPUT_PER_M;
 
   let detected: { productId: number; quantity: number; cx?: number; cy?: number }[];
   try {
@@ -109,8 +120,8 @@ Nếu không nhận dạng được sản phẩm nào: []`;
       cy: typeof d.cy === "number" ? Math.min(1, Math.max(0, d.cy)) : 0.5,
     }));
 
-  req.log.info({ detectedCount: items.length }, "Scan complete");
-  res.json({ items });
+  req.log.info({ detectedCount: items.length, inputTokens, outputTokens, costUsd }, "Scan complete");
+  res.json({ items, apiCost: { inputTokens, outputTokens, costUsd } });
 });
 
 export default router;

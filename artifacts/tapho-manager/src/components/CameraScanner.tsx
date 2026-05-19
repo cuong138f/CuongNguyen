@@ -28,6 +28,7 @@ export default function CameraScanner({ onDetected, onClose }: CameraScannerProp
   const [capturedImage, setCapturedImage] = useState<string>("");
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [apiCost, setApiCost] = useState<{ inputTokens: number; outputTokens: number; costUsd: number } | null>(null);
   const [error, setError] = useState("");
   const [cameraError, setCameraError] = useState("");
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
@@ -122,6 +123,7 @@ export default function CameraScanner({ onDetected, onClose }: CameraScannerProp
       }
       setScannedItems(data.items);
       setSelectedIds(new Set(data.items.map((i: ScannedItem) => i.productId)));
+      setApiCost(data.apiCost ?? null);
       setMode("result");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Không thể phân tích ảnh");
@@ -431,7 +433,7 @@ export default function CameraScanner({ onDetected, onClose }: CameraScannerProp
               })}
 
               {/* Summary rows */}
-              <div className="px-4 pt-3 pb-1 space-y-1.5 bg-muted/30 border-t">
+              <div className="px-4 pt-3 pb-2 space-y-1.5 bg-muted/30 border-t">
                 {/* Selected subtotal */}
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">
@@ -444,7 +446,7 @@ export default function CameraScanner({ onDetected, onClose }: CameraScannerProp
                       .toLocaleString("vi-VN")}đ
                   </span>
                 </div>
-                {/* Grand total highlight */}
+                {/* Grand total */}
                 <div className="flex items-center justify-between py-2 border-t">
                   <span className="font-bold text-base">Tổng ước tính</span>
                   <span className="font-bold text-primary text-lg">
@@ -454,6 +456,22 @@ export default function CameraScanner({ onDetected, onClose }: CameraScannerProp
                       .toLocaleString("vi-VN")} đ
                   </span>
                 </div>
+                {/* API cost */}
+                {apiCost && (
+                  <div className="flex items-center justify-between pt-1.5 border-t border-dashed text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-flex items-center gap-1 bg-violet-100 text-violet-700 rounded-full px-2 py-0.5 font-medium">
+                        Gemini API
+                      </span>
+                      <span>{apiCost.inputTokens.toLocaleString()} in · {apiCost.outputTokens.toLocaleString()} out</span>
+                    </div>
+                    <span className="font-semibold text-violet-700">
+                      ~${apiCost.costUsd < 0.001
+                        ? apiCost.costUsd.toFixed(6)
+                        : apiCost.costUsd.toFixed(4)}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
