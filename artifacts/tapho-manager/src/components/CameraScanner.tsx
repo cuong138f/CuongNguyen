@@ -1,6 +1,6 @@
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Camera, Upload, X, Loader2, CheckCircle, AlertCircle, RotateCcw } from "lucide-react";
+import { Camera, Upload, X, Loader2, CheckCircle, AlertCircle, RotateCcw, SwitchCamera } from "lucide-react";
 
 interface ScannedItem {
   productId: number;
@@ -13,6 +13,8 @@ interface CameraScannerProps {
   onDetected: (items: ScannedItem[]) => void;
   onClose: () => void;
 }
+
+const ZOOM_LEVELS = [0.5, 0.8, 1.0, 1.5];
 
 export default function CameraScanner({ onDetected, onClose }: CameraScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -28,8 +30,6 @@ export default function CameraScanner({ onDetected, onClose }: CameraScannerProp
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [zoom, setZoom] = useState(1.0);
 
-  const ZOOM_LEVELS = [0.5, 0.8, 1.0, 1.5];
-
   const startCamera = useCallback(async (facing: "environment" | "user") => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
@@ -37,7 +37,11 @@ export default function CameraScanner({ onDetected, onClose }: CameraScannerProp
     setCameraError("");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: {
+          facingMode: facing,
+          width: { ideal: 1080 },
+          height: { ideal: 1920 },
+        },
       });
       streamRef.current = stream;
       if (videoRef.current) {
@@ -59,9 +63,8 @@ export default function CameraScanner({ onDetected, onClose }: CameraScannerProp
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
-    const vw = video.videoWidth || 1280;
-    const vh = video.videoHeight || 720;
-    // Crop center based on zoom: zoom>1 = crop in, zoom<1 = no crop (show full)
+    const vw = video.videoWidth || 1080;
+    const vh = video.videoHeight || 1920;
     const effectiveZoom = Math.max(zoom, 1);
     const srcW = vw / effectiveZoom;
     const srcH = vh / effectiveZoom;
@@ -128,177 +131,242 @@ export default function CameraScanner({ onDetected, onClose }: CameraScannerProp
   }, [scannedItems, onDetected, onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b">
-          <div className="flex items-center gap-2">
-            <Camera className="w-5 h-5 text-primary" />
-            <span className="font-semibold text-sm">
-              {mode === "camera" && "Chụp ảnh sản phẩm"}
-              {mode === "preview" && "Xem lại ảnh"}
-              {mode === "scanning" && "Đang nhận dạng..."}
-              {mode === "result" && "Kết quả nhận dạng"}
-            </span>
-          </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <div className="fixed inset-0 z-50 bg-black flex flex-col sm:bg-black/80 sm:items-center sm:justify-center sm:p-4">
+      {/* Desktop card wrapper */}
+      <div className="flex flex-col flex-1 sm:flex-none sm:bg-white sm:rounded-2xl sm:w-full sm:max-w-lg sm:overflow-hidden sm:shadow-2xl">
 
-        {/* Body */}
-        <div className="p-4">
-          {/* Camera view */}
-          {mode === "camera" && (
-            <div className="space-y-3">
-              <div className="relative rounded-xl overflow-hidden bg-black aspect-video">
-                {cameraError ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-white/70 p-6 text-center">
-                    <AlertCircle className="w-10 h-10" />
-                    <p className="text-sm">{cameraError}</p>
-                  </div>
-                ) : (
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-full object-cover transition-transform duration-200"
-                    style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}
-                  />
-                )}
-                {/* Zoom buttons overlay */}
-                {!cameraError && (
-                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5 bg-black/50 rounded-full px-2 py-1">
-                    {ZOOM_LEVELS.map((level) => (
-                      <button
-                        key={level}
-                        onClick={() => setZoom(level)}
-                        className={`text-xs font-semibold px-2 py-0.5 rounded-full transition-colors ${
-                          zoom === level
-                            ? "bg-white text-black"
-                            : "text-white/80 hover:text-white"
-                        }`}
-                      >
-                        {level}×
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <canvas ref={canvasRef} className="hidden" />
+        {/* ── CAMERA MODE ── */}
+        {mode === "camera" && (
+          <>
+            {/* Camera fills screen */}
+            <div className="relative flex-1 bg-black overflow-hidden sm:aspect-[3/4] sm:flex-none">
+              {cameraError ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-white/70 p-6 text-center">
+                  <AlertCircle className="w-12 h-12" />
+                  <p className="text-sm">{cameraError}</p>
+                </div>
+              ) : (
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-200"
+                  style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}
+                />
+              )}
 
-              <div className="flex gap-2">
-                {!cameraError && (
-                  <>
-                    <Button
-                      type="button"
-                      onClick={capture}
-                      className="flex-1 gap-2 rounded-full"
-                    >
-                      <Camera className="w-4 h-4" />
-                      Chụp ảnh
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      onClick={() => setFacingMode((f) => f === "environment" ? "user" : "environment")}
-                      title="Đổi camera"
-                      className="rounded-full"
-                    >
-                      <RotateCcw className="w-4 h-4" />
-                    </Button>
-                  </>
-                )}
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={`gap-2 rounded-full ${cameraError ? "flex-1" : ""}`}
-                  onClick={() => fileInputRef.current?.click()}
+              {/* Top bar: title + close */}
+              <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-safe-top pb-3 pt-4 bg-gradient-to-b from-black/60 to-transparent">
+                <div className="flex items-center gap-2 text-white">
+                  <Camera className="w-5 h-5" />
+                  <span className="font-semibold text-sm">Chụp ảnh sản phẩm</span>
+                </div>
+                <button
+                  onClick={onClose}
+                  className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center text-white"
                 >
-                  <Upload className="w-4 h-4" />
-                  Upload ảnh
-                </Button>
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleFileUpload}
-              />
-              <p className="text-xs text-muted-foreground text-center">
-                Chụp ảnh các sản phẩm — AI sẽ tự nhận dạng và tính tiền
-              </p>
-            </div>
-          )}
 
-          {/* Preview */}
-          {(mode === "preview" || mode === "scanning") && capturedImage && (
-            <div className="space-y-3">
-              <div className="rounded-xl overflow-hidden aspect-video bg-black">
-                <img src={capturedImage} alt="captured" className="w-full h-full object-contain" />
+              {/* Zoom buttons overlay */}
+              {!cameraError && (
+                <div className="absolute bottom-24 sm:bottom-4 left-1/2 -translate-x-1/2 flex gap-2 bg-black/50 rounded-full px-3 py-1.5">
+                  {ZOOM_LEVELS.map((level) => (
+                    <button
+                      key={level}
+                      onClick={() => setZoom(level)}
+                      className={`text-sm font-semibold px-2.5 py-1 rounded-full transition-colors ${
+                        zoom === level
+                          ? "bg-white text-black"
+                          : "text-white/80 active:text-white"
+                      }`}
+                    >
+                      {level}×
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Bottom controls */}
+            <div className="bg-black sm:bg-white px-6 py-5 flex items-center gap-4">
+              {/* Upload button */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex flex-col items-center gap-1 text-white/70 sm:text-muted-foreground active:text-white sm:hover:text-foreground transition-colors"
+              >
+                <div className="w-12 h-12 rounded-full border-2 border-white/30 sm:border-border flex items-center justify-center">
+                  <Upload className="w-5 h-5" />
+                </div>
+                <span className="text-xs">Upload</span>
+              </button>
+
+              {/* Capture button — center, big */}
+              {!cameraError && (
+                <button
+                  onClick={capture}
+                  className="flex-1 flex justify-center"
+                >
+                  <div className="w-20 h-20 rounded-full bg-white border-4 border-white/40 flex items-center justify-center shadow-lg active:scale-95 transition-transform">
+                    <div className="w-14 h-14 rounded-full bg-primary flex items-center justify-center">
+                      <Camera className="w-7 h-7 text-white" />
+                    </div>
+                  </div>
+                </button>
+              )}
+
+              {/* Flip camera button */}
+              {!cameraError ? (
+                <button
+                  onClick={() => setFacingMode((f) => f === "environment" ? "user" : "environment")}
+                  className="flex flex-col items-center gap-1 text-white/70 sm:text-muted-foreground active:text-white sm:hover:text-foreground transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-full border-2 border-white/30 sm:border-border flex items-center justify-center">
+                    <SwitchCamera className="w-5 h-5" />
+                  </div>
+                  <span className="text-xs">Xoay</span>
+                </button>
+              ) : (
+                <div className="flex-1">
+                  <Button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full gap-2 rounded-full"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Chọn ảnh
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <canvas ref={canvasRef} className="hidden" />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
+          </>
+        )}
+
+        {/* ── PREVIEW / SCANNING MODE ── */}
+        {(mode === "preview" || mode === "scanning") && capturedImage && (
+          <>
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 sm:border-b bg-white">
+              <div className="flex items-center gap-2">
+                <Camera className="w-5 h-5 text-primary" />
+                <span className="font-semibold text-sm">Xem lại ảnh</span>
               </div>
+              <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Image preview */}
+            <div className="flex-1 bg-black sm:max-h-[50vh] overflow-hidden">
+              <img src={capturedImage} alt="captured" className="w-full h-full object-contain" />
+            </div>
+
+            {/* Controls */}
+            <div className="bg-white px-4 py-4 space-y-3">
               {error && (
                 <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg px-3 py-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   {error}
                 </div>
               )}
-              <div className="flex gap-2">
-                <Button type="button" variant="outline" onClick={retake} className="gap-2 rounded-full flex-1" disabled={mode === "scanning"}>
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={retake}
+                  className="flex-1 gap-2 rounded-full h-12"
+                  disabled={mode === "scanning"}
+                >
                   <RotateCcw className="w-4 h-4" />
                   Chụp lại
                 </Button>
-                <Button type="button" onClick={scanImage} className="gap-2 rounded-full flex-1" disabled={mode === "scanning"}>
+                <Button
+                  type="button"
+                  onClick={scanImage}
+                  className="flex-1 gap-2 rounded-full h-12"
+                  disabled={mode === "scanning"}
+                >
                   {mode === "scanning" ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> Đang nhận dạng...</>
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Nhận dạng...</>
                   ) : (
                     <><Camera className="w-4 h-4" /> Nhận dạng</>
                   )}
                 </Button>
               </div>
             </div>
-          )}
+          </>
+        )}
 
-          {/* Result */}
-          {mode === "result" && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 text-green-600 text-sm font-medium">
+        {/* ── RESULT MODE ── */}
+        {mode === "result" && (
+          <>
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 sm:border-b bg-white">
+              <div className="flex items-center gap-2 text-green-600">
                 <CheckCircle className="w-5 h-5" />
-                Nhận dạng được {scannedItems.length} sản phẩm
+                <span className="font-semibold text-sm">
+                  Nhận dạng được {scannedItems.length} sản phẩm
+                </span>
               </div>
-              <div className="rounded-xl border divide-y max-h-52 overflow-y-auto">
-                {scannedItems.map((item) => (
-                  <div key={item.productId} className="flex items-center justify-between px-3 py-2.5 text-sm">
-                    <span className="font-medium flex-1 pr-2 line-clamp-1">{item.productName}</span>
-                    <span className="text-muted-foreground mr-3">x{item.quantity}</span>
-                    <span className="text-primary font-semibold whitespace-nowrap">
-                      {(item.unitPrice * item.quantity).toLocaleString("vi-VN")} đ
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-center justify-between px-1 text-sm font-semibold">
+              <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Items list */}
+            <div className="flex-1 overflow-y-auto divide-y bg-white">
+              {scannedItems.map((item) => (
+                <div key={item.productId} className="flex items-center justify-between px-4 py-3 text-sm">
+                  <span className="font-medium flex-1 pr-2 line-clamp-1">{item.productName}</span>
+                  <span className="text-muted-foreground mr-3">x{item.quantity}</span>
+                  <span className="text-primary font-semibold whitespace-nowrap">
+                    {(item.unitPrice * item.quantity).toLocaleString("vi-VN")} đ
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Total + actions */}
+            <div className="bg-white border-t px-4 py-4 space-y-3">
+              <div className="flex items-center justify-between text-sm font-semibold px-1">
                 <span>Tổng cộng</span>
                 <span className="text-primary text-base">
                   {scannedItems.reduce((s, i) => s + i.unitPrice * i.quantity, 0).toLocaleString("vi-VN")} đ
                 </span>
               </div>
-              <div className="flex gap-2 pt-1">
-                <Button type="button" variant="outline" onClick={retake} className="gap-2 rounded-full flex-1">
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={retake}
+                  className="flex-1 gap-2 rounded-full h-12"
+                >
                   <RotateCcw className="w-4 h-4" />
                   Chụp lại
                 </Button>
-                <Button type="button" onClick={confirm} className="gap-2 rounded-full flex-1">
+                <Button
+                  type="button"
+                  onClick={confirm}
+                  className="flex-1 gap-2 rounded-full h-12"
+                >
                   <CheckCircle className="w-4 h-4" />
                   Thêm vào đơn
                 </Button>
               </div>
             </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
     </div>
   );
